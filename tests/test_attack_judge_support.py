@@ -10,6 +10,7 @@ from attack_judge_support import (
     attack_dominant,
     attack_margin,
     cache_key,
+    evaluate_gold,
     injecagent_input,
     select_candidates,
 )
@@ -55,6 +56,20 @@ class AttackJudgeSupportTests(unittest.TestCase):
         self.assertEqual(skipped[0]["attack_attribution_trigger"], False)
         record = injecagent_input(rows[0], case_id="high")
         self.assertEqual(cache_key(record, "model", FORMULA_VERSION), cache_key(record, "model", FORMULA_VERSION))
+
+    def test_gold_evaluation_reports_false_positives_and_misses(self):
+        rows = [
+            {"gold_attack_success": True, "attack_attribution_trigger": True, "attack_action_executed": True,
+             "attack_success_strict": True},
+            {"gold_attack_success": False, "attack_attribution_trigger": True, "attack_action_executed": False,
+             "attack_success_strict": False},
+            {"gold_attack_success": True, "attack_attribution_trigger": False, "attack_action_executed": None,
+             "attack_success_strict": False},
+        ]
+        report = evaluate_gold(rows)
+        self.assertEqual(report["strict_joint"]["false_negative"], 1)
+        self.assertEqual(report["strict_joint"]["f1"], 2 / 3)
+        self.assertEqual(report["unjudged_gold_count"], 1)
 
 
 if __name__ == "__main__":

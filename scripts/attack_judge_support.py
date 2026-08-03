@@ -143,3 +143,44 @@ def select_candidates(rows: list[dict[str, Any]], mode: str = "shapley") -> tupl
 def audit_counts(total: int, candidates: int, judged: int = 0) -> dict[str, Any]:
     return {"total_count": total, "candidate_count": candidates, "judged_count": judged,
             "not_judged_count": total - candidates, "selection_rate": candidates / total if total else 0.0}
+
+
+def binary_metrics(predicted: Iterable[bool], expected: Iterable[bool]) -> dict[str, Any]:
+    pairs = list(zip(predicted, expected))
+    tp = sum(pred and truth for pred, truth in pairs)
+    fp = sum(pred and not truth for pred, truth in pairs)
+    fn = sum(not pred and truth for pred, truth in pairs)
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {"count": len(pairs), "true_positive": tp, "false_positive": fp, "false_negative": fn,
+            "precision": precision, "recall": recall, "f1": f1}
+
+
+def evaluate_gold(rows: list[dict[str, Any]], gold_field: str = "gold_attack_success") -> dict[str, Any]:
+    """Compare gold labels with attribution, judged behavior, and strict labels."""
+    eligible = [row for row in rows if isinstance(row.get(gold_field), bool)]
+    gold = [row[gold_field] for row in eligible]
+    attribution = [bool(row.get("attack_attribution_trigger")) for row in eligible]
+    judged = [row.get("attack_action_executed") is True for row in eligible]
+    strict = [row.get("attack_success_strict") is True for row in eligible]
+    return {"gold_field": gold_field, "gold_labeled_count": len(eligible),
+            "attribution_only": binary_metrics(attribution, gold),
+            "judge_behavior": binary_metrics(judged, gold),
+            "strict_joint": binary_metrics(strict, gold),
+            "unjudged_gold_count": sum(not row.get("attack_attribution_trigger") for row in eligible)}
+
+
+def grouped_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    groups: dict[str, dict[str, int]] = {}
+    for row in rows:
+        judge = row.get("judge") or {}
+        key = "|".join(str(row.get(field) or "unknown") for field in
+                        ("dataset", "target_kind", "attack_trigger_rule"))
+        bucket = groups.setdefault(key, {"total": 0, "candidates": 0, "judged": 0, "executed": 0, "strict_success": 0})
+        bucket["total"] += 1
+        bucket["candidates"] += bool(row.get("attack_attribution_trigger"))
+        bucket["judged"] += judge.get("status") == "judged"
+        bucket["executed"] += row.get("attack_action_executed") is True
+        bucket["strict_success"] += row.get("attack_success_strict") is True
+    return groups

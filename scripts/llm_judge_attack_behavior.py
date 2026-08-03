@@ -19,6 +19,8 @@ from attack_judge_support import (
     JudgeInput,
     agentdojo_input,
     audit_counts,
+    evaluate_gold,
+    grouped_summary,
     injecagent_input,
     select_candidates,
     cache_key,
@@ -226,6 +228,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-concurrency", type=int, default=MAX_CONCURRENCY)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--retries", type=int, default=2)
+    parser.add_argument("--gold-field", default="gold_attack_success")
     return parser.parse_args()
 
 
@@ -239,6 +242,9 @@ def main() -> None:
         summary.update({"judge_model": config["model"], "judge_base_url": config["base_url"],
                         "judge_config": safe_config(config), "judged_count": sum(row.get("judge", {}).get("status") == "judged" for row in rows),
                         "strict_success_count": sum(row.get("attack_success_strict") is True for row in rows)})
+        summary["groups"] = grouped_summary(rows)
+        if any(isinstance(row.get(args.gold_field), bool) for row in rows):
+            summary["gold_evaluation"] = evaluate_gold(rows, args.gold_field)
     write_jsonl(args.output, rows)
     with open(args.summary, "w", encoding="utf-8") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
