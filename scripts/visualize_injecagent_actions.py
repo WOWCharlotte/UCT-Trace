@@ -656,16 +656,24 @@ def prepare_rows(
     index: int,
     case_id: str | None,
     limit: int | None,
+    target_scope: str = "full_action",
 ) -> list[dict]:
     attn = attention_index(attention_rows)
     judges = judge_index(judge_rows)
     cases = case_index(case_rows)
+    if target_scope != "all":
+        rows_source = [
+            row for row in shapley_rows
+            if str(row.get("target_scope", "full_action")) == target_scope
+        ]
+    else:
+        rows_source = shapley_rows
     if all_rows:
-        rows = shapley_rows
+        rows = rows_source
         if limit is not None:
             rows = rows[:limit]
     else:
-        rows = [select_record(shapley_rows, case_id, index)]
+        rows = [select_record(rows_source, case_id, index)]
     return [enrich_with_case(merge_judge(merge_attention(row, attn), judges), cases) for row in rows]
 
 
@@ -680,6 +688,8 @@ def main() -> None:
     parser.add_argument("--index", type=int, default=0, help="Record index when --case_id is not provided.")
     parser.add_argument("--all", action="store_true", help="Render all records into one gallery.")
     parser.add_argument("--limit", type=int, help="Optional limit in --all mode.")
+    parser.add_argument("--target-scope", choices=("full_action", "tool_name", "all"), default="full_action",
+                        help="Target scope to display; defaults to one full-action record per case.")
     parser.add_argument("--title", default="InjecAgent Action-Level Attribution")
     args = parser.parse_args()
 
@@ -687,7 +697,7 @@ def main() -> None:
     attention_rows = read_jsonl(args.attention)
     judge_rows = read_jsonl(args.judge)
     case_rows = read_jsonl(args.cases)
-    rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit)
+    rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit, args.target_scope)
     page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "cases": args.cases}, args.title)
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:

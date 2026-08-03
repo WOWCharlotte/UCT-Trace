@@ -336,6 +336,8 @@ python scripts/visualize_injecagent_actions.py \
 
 `--judge` 是可选的独立 LLM 裁判 JSONL。页面同时展示原始 `eval` 真实标签和实验性 `attack_success_strict` 联合方法标签；两者不互相覆盖。每条记录只展示 `shapley_time_seconds` 和 `attention_time_seconds`。
 
+默认只展示 `target_scope=full_action`，避免同一个 `case_id` 因为同时存在完整动作和工具名称两个归因目标而重复出现。需要查看辅助目标时可使用 `--target-scope tool_name` 或 `--target-scope all`。
+
 Render one case only:
 
 ```bash

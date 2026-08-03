@@ -146,6 +146,19 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIn("record.classList.toggle(\"is-filtered\", !matches)", html)
         self.assertIn(".record.is-filtered", html)
 
+    def test_prepare_rows_defaults_to_full_action_scope(self):
+        full = {**self._row(), "target_scope": "full_action"}
+        tool_name = {**self._row(), "target_scope": "tool_name", "phi_data_attack": -0.5}
+        rows = viz.prepare_rows([full, tool_name], [], [], [], True, 0, None, None)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["target_scope"], "full_action")
+
+    def test_prepare_rows_can_show_all_scopes_explicitly(self):
+        full = {**self._row(), "target_scope": "full_action"}
+        tool_name = {**self._row(), "target_scope": "tool_name"}
+        rows = viz.prepare_rows([full, tool_name], [], [], [], True, 0, None, None, "all")
+        self.assertEqual(len(rows), 2)
+
     def test_unsuccessful_non_shift_case_is_collapsed(self):
         row = dict(self._row())
         row["eval"] = "unsucc"
