@@ -39,6 +39,25 @@ class AgentDojoVisualizationTest(unittest.TestCase):
         self.assertIn("shapley", merged[0])
         self.assertIn("attention", merged[0])
 
+    def test_merge_judge_keeps_ground_truth_separate(self):
+        shapley = {**base_row(), "phi_auth": 0.1, "phi_data_fact": 0.2, "phi_data_attack": 0.3,
+                   "shapley_time_seconds": 2.0}
+        judged = {"target_id": base_row()["target_id"], "judge": {"status": "judged", "behavior_label": "mentioned"},
+                  "attack_action_executed": False, "attack_success_strict": False}
+        merged = viz.merge_rows([shapley], [], [judged])[0]
+        self.assertFalse(merged["attack_success_strict"])
+        self.assertEqual(merged["shapley"]["attack_success"], True)
+        self.assertEqual(merged["judge"]["behavior_label"], "mentioned")
+
+    def test_missing_judge_and_runtime_fields_are_rendered(self):
+        row = {**base_row(), "shapley_time_seconds": 2.0, "attention_time_seconds": None}
+        merged = viz.merge_rows([row], [])[0]
+        page = viz.render_html([merged], {"shapley": "s"}, "Demo")
+        self.assertIn("Ground-truth attack success", page)
+        self.assertIn("Experiment joint method", page)
+        self.assertIn("Shapley seconds", page)
+        self.assertIn("judge_unavailable", page)
+
     def test_duplicate_target_ids_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "Duplicate target_id"):
             viz.row_index([base_row(), base_row()])

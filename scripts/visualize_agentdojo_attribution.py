@@ -7,7 +7,12 @@ import html
 import json
 import math
 import os
+import sys
 from collections import Counter
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from attack_judge_support import attack_margin
 
@@ -38,9 +43,10 @@ def row_index(rows: list[dict]) -> dict[str, dict]:
     return result
 
 
-def merge_rows(shapley_rows: list[dict], attention_rows: list[dict]) -> list[dict]:
+def merge_rows(shapley_rows: list[dict], attention_rows: list[dict], judge_rows: list[dict] | None = None) -> list[dict]:
     shapley = row_index(shapley_rows)
     attention = row_index(attention_rows)
+    judges = row_index(judge_rows or [])
     target_ids = list(shapley) if shapley else list(attention)
     merged = []
     for target_id in target_ids:
@@ -49,6 +55,18 @@ def merge_rows(shapley_rows: list[dict], attention_rows: list[dict]) -> list[dic
             row["attention"] = attention[target_id]
         if target_id in shapley:
             row["shapley"] = shapley[target_id]
+        judge = judges.get(target_id)
+        if judge is None:
+            row["judge"] = {"status": "judge_unavailable"}
+            row["attack_action_executed"] = None
+            row["attack_success_strict"] = False
+        else:
+            row["judge"] = judge.get("judge") or judge
+            row["attack_action_executed"] = judge.get("attack_action_executed")
+            attribution_trigger = judge.get("attack_attribution_trigger",
+                                             (row.get("shapley") or {}).get("shapley_attack_dominant", False))
+            row["attack_attribution_trigger"] = bool(attribution_trigger)
+            row["attack_success_strict"] = bool(attribution_trigger and row["attack_action_executed"] is True)
         merged.append(row)
     return merged
 
@@ -154,16 +172,21 @@ def render_record(row: dict) -> str:
     attack_success = source.get("attack_success")
     open_attr = " open" if attack_success or (row.get("attention") or {}).get("attention_shift") else ""
     target_id = html.escape(str(source.get("target_id")))
+    judge = row.get("judge") or {}
     metadata = [
         ("Suite", source.get("suite_name")), ("Security", source.get("security")),
-        ("Utility", source.get("utility")), ("Attack success", attack_success),
+        ("Utility", source.get("utility")), ("Ground-truth attack success", attack_success),
+        ("Experiment joint method", row.get("attack_success_strict")),
+        ("Judge behavior", judge.get("behavior_label") or judge.get("status")),
+        ("Shapley seconds", source.get("shapley_time_seconds")),
+        ("Attention seconds", source.get("attention_time_seconds")),
         ("Target kind", source.get("target_kind")), ("Target scope", source.get("target_scope")),
         ("Polluted tool index", source.get("polluted_tool_message_index")),
         ("Assistant index", source.get("target_assistant_message_index")),
     ]
     rows = "".join(f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(value))}</td></tr>" for label, value in metadata)
     target = html.escape(str(source.get("target_text") or source.get("error") or ""))
-    return f"""<details class="record" id="target-{target_id}" data-suite="{html.escape(str(source.get('suite_name')))}" data-security="{html.escape(str(source.get('security')).lower())}" data-kind="{html.escape(str(source.get('target_kind')))}"{open_attr}><summary><span><strong>{html.escape(str(source.get('case_id')))}</strong><small>{target_id}</small></span><span>{html.escape(str(source.get('target_kind')))} · attack success {yes_no(attack_success)}</span></summary><div class="record-body"><div class="layout"><div class="stack"><section class="panel"><h2>Selection</h2><table>{rows}</table></section>{render_players(row)}<section class="panel"><h2>Next Assistant Target</h2><pre>{target}</pre></section></div><div class="stack">{render_shapley(row)}{render_attention(row)}</div></div></div></details>"""
+    return f"""<details class="record" id="target-{target_id}" data-suite="{html.escape(str(source.get('suite_name')))}" data-security="{html.escape(str(source.get('security')).lower())}" data-kind="{html.escape(str(source.get('target_kind')))}"{open_attr}><summary><span><strong>{html.escape(str(source.get('case_id')))}</strong><small>{target_id}</small></span><span>{html.escape(str(source.get('target_kind')))} · ground-truth success {yes_no(attack_success)} · joint method {yes_no(row.get('attack_success_strict'))}</span></summary><div class="record-body"><div class="layout"><div class="stack"><section class="panel"><h2>Selection</h2><table>{rows}</table></section>{render_players(row)}<section class="panel"><h2>Next Assistant Target</h2><pre>{target}</pre></section></div><div class="stack">{render_shapley(row)}{render_attention(row)}</div></div></div></details>"""
 
 
 def summary(rows: list[dict]) -> dict:
@@ -173,6 +196,8 @@ def summary(rows: list[dict]) -> dict:
         "suite": dict(Counter(str(row.get("suite_name")) for row in sources)),
         "target_kind": dict(Counter(str(row.get("target_kind")) for row in sources)),
         "attack_success": sum(row.get("attack_success") is True for row in sources),
+        "attack_success_strict": sum(row.get("attack_success_strict") is True for row in rows),
+        "judge_behavior": dict(Counter(str((row.get("judge") or {}).get("behavior_label") or (row.get("judge") or {}).get("status")) for row in rows)),
         "attention_shift": sum((row.get("attention") or {}).get("attention_shift") is True for row in rows),
         "shapley_attack_dominant": sum((row.get("shapley") or {}).get("shapley_attack_dominant") is True for row in rows),
     }
@@ -184,7 +209,8 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
     kinds = sorted(counts["target_kind"])
     options = lambda values: "".join(f'<option value="{html.escape(value)}">{html.escape(value)}</option>' for value in values)
     cards = "".join(f'<div class="summary-card"><span>{html.escape(label)}</span><strong>{html.escape(str(value))}</strong></div>' for label, value in [
-        ("Records", counts["records"]), ("Attack Success", counts["attack_success"]),
+        ("Records", counts["records"]), ("Ground-truth Attack Success", counts["attack_success"]),
+        ("Experiment Joint Method", counts["attack_success_strict"]),
         ("Attention Shift", counts["attention_shift"]), ("Shapley Attack Dominant", counts["shapley_attack_dominant"]),
     ])
     records = "".join(render_record(row) for row in rows)
@@ -205,6 +231,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Render AgentDojo next-assistant attribution JSONL as HTML")
     parser.add_argument("--shapley", help="results.shapley.jsonl")
     parser.add_argument("--attention", help="results.attention.jsonl")
+    parser.add_argument("--judge", help="Optional independent LLM judge JSONL")
     parser.add_argument("--output", required=True)
     parser.add_argument("--target-id")
     parser.add_argument("--index", type=int, default=0)
@@ -215,7 +242,7 @@ def main() -> None:
     args = parser.parse_args()
     if not args.shapley and not args.attention:
         parser.error("at least one of --shapley or --attention is required")
-    merged = merge_rows(read_jsonl(args.shapley), read_jsonl(args.attention))
+    merged = merge_rows(read_jsonl(args.shapley), read_jsonl(args.attention), read_jsonl(args.judge))
     if args.valid_only:
         merged = [row for row in merged if all(
             row.get(method, {}).get("valid_for_stats")

@@ -116,6 +116,27 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIn("prompt norm 0.89", html)
         self.assertIn('<details class="record" id="case-7" open>', html)
 
+    def test_merge_judge_distinguishes_joint_method_and_status(self):
+        row = {**self._row(), "target_scope": "full_action", "shapley_time_seconds": 1.25,
+               "attention_time_seconds": 0.75}
+        merged = viz.merge_judge(row, {("7", "full_action"): {
+            "case_id": 7, "target_scope": "full_action",
+            "judge": {"status": "judged", "behavior_label": "executed"},
+            "attack_action_executed": True, "attack_success_strict": True,
+        }})
+        page = viz.render_html([merged], {"shapley": "s", "attention": "a", "judge": "j"}, "Demo")
+        self.assertTrue(merged["attack_success_strict"])
+        self.assertIn("Experiment Joint Method", page)
+        self.assertIn("Judge Behavior", page)
+        self.assertIn("Shapley Seconds", page)
+        self.assertIn("Attention Seconds", page)
+
+    def test_missing_judge_is_not_a_behavior_negative(self):
+        merged = viz.merge_judge(self._row(), {})
+        self.assertEqual(merged["judge"]["status"], "judge_unavailable")
+        self.assertIsNone(merged["attack_action_executed"])
+        self.assertFalse(merged["attack_success_strict"])
+
     def test_unsuccessful_non_shift_case_is_collapsed(self):
         row = dict(self._row())
         row["eval"] = "unsucc"

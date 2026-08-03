@@ -8,7 +8,12 @@ import html
 import json
 import math
 import os
+import sys
 from collections import Counter
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
 
 from attack_judge_support import attack_margin as compute_attack_margin
 
@@ -67,6 +72,10 @@ def attention_index(rows: list[dict]) -> dict[str, dict]:
     return {str(row.get("case_id")): row for row in rows}
 
 
+def judge_index(rows: list[dict]) -> dict[tuple[str, str], dict]:
+    return {(str(row.get("case_id")), str(row.get("target_scope", "full_action"))): row for row in rows}
+
+
 def merge_attention(row: dict, attn_by_case: dict[str, dict]) -> dict:
     row = dict(row)
     attention = attn_by_case.get(str(row.get("case_id")))
@@ -77,6 +86,22 @@ def merge_attention(row: dict, attn_by_case: dict[str, dict]) -> dict:
         row.setdefault("attention_attack_dominant", attention.get("attention_attack_dominant"))
         row.setdefault("attention_region_scores", attention.get("region_scores"))
     return row
+
+
+def merge_judge(row: dict, judges: dict[tuple[str, str], dict]) -> dict:
+    merged = dict(row)
+    judge = judges.get((str(row.get("case_id")), str(row.get("target_scope", "full_action"))))
+    if judge is None:
+        merged["judge"] = {"status": "judge_unavailable"}
+        merged["attack_action_executed"] = None
+        merged["attack_success_strict"] = False
+    else:
+        action_executed = judge.get("attack_action_executed")
+        attribution_trigger = judge.get("attack_attribution_trigger", row.get("shapley_attack_dominant", False))
+        merged.update({"judge": judge.get("judge") or judge, "attack_action_executed": action_executed,
+                       "attack_attribution_trigger": bool(attribution_trigger),
+                       "attack_success_strict": bool(attribution_trigger and action_executed is True)})
+    return merged
 
 
 def should_expand_record(row: dict) -> bool:
@@ -351,6 +376,10 @@ def render_status(row: dict) -> str:
         <span>Shapley Attack Dominant</span>
         <strong class="{status_class(row.get("shapley_attack_dominant"))}">{bool_label(row.get("shapley_attack_dominant"))}</strong>
       </div>
+      <div class="status-card"><span>Experiment Joint Method</span><strong class="{status_class(row.get("attack_success_strict"))}">{bool_label(row.get("attack_success_strict"))}</strong></div>
+      <div class="status-card"><span>Judge Behavior</span><strong>{html.escape(str((row.get("judge") or {}).get("behavior_label") or (row.get("judge") or {}).get("status", "unknown")))}</strong></div>
+      <div class="status-card"><span>Shapley Seconds</span><strong>{fmt(row.get("shapley_time_seconds"))}</strong></div>
+      <div class="status-card"><span>Attention Seconds</span><strong>{fmt(row.get("attention_time_seconds"))}</strong></div>
     </div>
     """
 
@@ -593,6 +622,7 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
 def prepare_rows(
     shapley_rows: list[dict],
     attention_rows: list[dict],
+    judge_rows: list[dict],
     case_rows: list[dict],
     all_rows: bool,
     index: int,
@@ -600,6 +630,7 @@ def prepare_rows(
     limit: int | None,
 ) -> list[dict]:
     attn = attention_index(attention_rows)
+    judges = judge_index(judge_rows)
     cases = case_index(case_rows)
     if all_rows:
         rows = shapley_rows
@@ -607,13 +638,14 @@ def prepare_rows(
             rows = rows[:limit]
     else:
         rows = [select_record(shapley_rows, case_id, index)]
-    return [enrich_with_case(merge_attention(row, attn), cases) for row in rows]
+    return [enrich_with_case(merge_judge(merge_attention(row, attn), judges), cases) for row in rows]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Render InjecAgent action-level Shapley/attention JSONL as HTML.")
     parser.add_argument("--shapley", required=True, help="results.action_shapley.jsonl from injecagent_action_experiment.py")
     parser.add_argument("--attention", help="Optional results.action_attention.jsonl from injecagent_action_experiment.py")
+    parser.add_argument("--judge", help="Optional independent LLM judge JSONL")
     parser.add_argument("--cases", default=DEFAULT_CASES, help="Original qwen InjecAgent JSONL used to show AUTH/FACT/ATTACK text.")
     parser.add_argument("--output", required=True, help="HTML output path.")
     parser.add_argument("--case_id", help="Render a specific case_id.")
@@ -625,9 +657,10 @@ def main() -> None:
 
     shapley_rows = read_jsonl(args.shapley)
     attention_rows = read_jsonl(args.attention)
+    judge_rows = read_jsonl(args.judge)
     case_rows = read_jsonl(args.cases)
-    rows = prepare_rows(shapley_rows, attention_rows, case_rows, args.all, args.index, args.case_id, args.limit)
-    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "cases": args.cases}, args.title)
+    rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit)
+    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "cases": args.cases}, args.title)
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(page)

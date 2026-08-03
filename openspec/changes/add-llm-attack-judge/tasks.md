@@ -43,3 +43,13 @@
 - [x] 5.3 报告低贡献未裁判样本及其对整体 recall 的限制
 - [x] 5.4 编写命令行运行示例、外部 LLM 配置、缓存恢复和结果字段说明
 - [x] 5.5 在实现前后运行 OpenSpec 校验和针对性测试
+
+## 6. 可视化裁判合并与耗时展示
+
+- [x] 6.1 为 InjecAgent 可视化脚本增加可选的 `--judge` 输入并按 `case_id`/`target_scope` 合并
+- [x] 6.2 为 AgentDojo 可视化脚本增加可选的 `--judge` 输入并按 `target_id` 合并
+- [x] 6.3 并列展示原始 `eval`/`security` 真实成功标签与实验性 `attack_success_strict` 联合方法标签
+- [x] 6.4 分别展示 `executed`、`mentioned`、`refused`、`judge_failed` 和 `not_judged_by_cascade`
+- [x] 6.5 展示 `shapley_time_seconds` 和 `attention_time_seconds`
+- [x] 6.6 增加两个可视化脚本的合并、严格成功和耗时测试
+- [x] 6.7 更新可视化命令行示例和结果字段文档

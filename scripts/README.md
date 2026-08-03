@@ -329,9 +329,12 @@ Render the InjecAgent-specific action attribution gallery:
 python scripts/visualize_injecagent_actions.py \
   --shapley result/injecagent_qwen3_dh/results.action_shapley.jsonl \
   --attention result/injecagent_qwen3_dh/results.action_attention.jsonl \
+  --judge result/injecagent_qwen3_dh/judge.jsonl \
   --output result/injecagent_qwen3_dh/injecagent_action_attribution.html \
   --all
 ```
+
+`--judge` 是可选的独立 LLM 裁判 JSONL。页面同时展示原始 `eval` 真实标签和实验性 `attack_success_strict` 联合方法标签；两者不互相覆盖。每条记录只展示 `shapley_time_seconds` 和 `attention_time_seconds`。
 
 Render one case only:
 
@@ -339,6 +342,18 @@ Render one case only:
 python scripts/visualize_injecagent_actions.py \
   --shapley result/injecagent_qwen3_dh/results.action_shapley.jsonl \
   --attention result/injecagent_qwen3_dh/results.action_attention.jsonl \
+  --judge result/injecagent_qwen3_dh/judge.jsonl \
   --output result/injecagent_qwen3_dh/injecagent_action_case0.html \
   --case_id 0
+```
+
+AgentDojo 同样支持可选裁判结果：
+
+```bash
+python scripts/visualize_agentdojo_attribution.py \
+  --shapley result/agentdojo_qwen3_important_instructions/results.shapley.jsonl \
+  --attention result/agentdojo_qwen3_important_instructions/results.attention.jsonl \
+  --judge result/agentdojo_qwen3_important_instructions/judge.jsonl \
+  --output result/agentdojo_qwen3_important_instructions/attribution_with_judge.html \
+  --all
 ```
