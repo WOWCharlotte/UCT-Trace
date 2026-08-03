@@ -37,6 +37,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from shapley_attribution import compute_shapley_values
+from attack_judge_support import attack_dominant, attack_margin, contribution_fields
 from utils import create_model, open_config
 
 
@@ -475,7 +476,11 @@ def attention_shift_metrics(region_scores: dict, threshold: float = 0.5) -> dict
     )
     auth_focus_score = region_scores_player_normalized[AUTH_KEY]
     attention_shift = auth_focus_score <= threshold
-    attention_attack_dominant = region_scores_player_normalized[ATTACK_KEY] > player_auth_fact
+    attention_attack_dominant = attack_dominant(
+        region_scores_player_normalized[ATTACK_KEY],
+        region_scores_player_normalized[AUTH_KEY],
+        region_scores_player_normalized[FACT_KEY],
+    )
     return {
         "region_scores_player_normalized": region_scores_player_normalized,
         "player_attention_mass": player_attention_mass,
@@ -486,7 +491,8 @@ def attention_shift_metrics(region_scores: dict, threshold: float = 0.5) -> dict
         "attention_shift_attack": bool(attention_shift),
         "attention_shift_basis": "auth_focus_score<=threshold_excluding_special",
         "attention_attack_dominant": bool(attention_attack_dominant),
-        "attention_attack_dominant_basis": "data_attack>auth+data_fact_within_player_normalized_regions",
+        "attention_attack_dominant_basis": "attack-margin-v1-on-player-normalized-regions",
+        "attack_dominant_formula_version": "attack-margin-v1",
     }
 
 
@@ -583,7 +589,7 @@ def grouped_margin(rows: list[dict], key: str) -> dict:
         group_value = row.get(key)
         if isinstance(group_value, list):
             group_value = "+".join(group_value)
-        groups[str(group_value)].append(row["phi_data_attack"] - (row["phi_auth"] + row["phi_data_fact"]))
+        groups[str(group_value)].append(attack_margin(row["phi_data_attack"], row["phi_auth"], row["phi_data_fact"]))
     return {name: summarize_numeric(values) for name, values in sorted(groups.items())}
 
 
@@ -649,7 +655,7 @@ def render_gallery(path: str, rows: list[dict], summary: dict) -> None:
     selected = rows[:200]
     cards = []
     for row in selected:
-        margin = row.get("phi_data_attack", 0.0) - (row.get("phi_auth", 0.0) + row.get("phi_data_fact", 0.0))
+        margin = attack_margin(row.get("phi_data_attack"), row.get("phi_auth"), row.get("phi_data_fact"))
         cards.append(
             "<tr>"
             f"<td>{html.escape(str(row.get('case_id')))}</td>"
@@ -824,12 +830,12 @@ def run_experiment(args) -> None:
                 "phi_auth": phi[AUTH_KEY],
                 "phi_data_fact": phi[FACT_KEY],
                 "phi_data_attack": phi[ATTACK_KEY],
-                "attack_margin": phi[ATTACK_KEY] - (phi[AUTH_KEY] + phi[FACT_KEY]),
+                **contribution_fields(phi[ATTACK_KEY], phi[AUTH_KEY], phi[FACT_KEY]),
                 "action_token_count": shapley["action_token_count"],
                 "efficiency_error": shapley["efficiency_error"],
             })
-            scoped_result["shapley_attack_dominant"] = bool(
-                scoped_result["phi_data_attack"] > scoped_result["phi_auth"] + scoped_result["phi_data_fact"]
+            scoped_result["shapley_attack_dominant"] = attack_dominant(
+                scoped_result["phi_data_attack"], scoped_result["phi_auth"], scoped_result["phi_data_fact"]
             )
             if target_scope == "full_action":
                 full_action_result = scoped_result

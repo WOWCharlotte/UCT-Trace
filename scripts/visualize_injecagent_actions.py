@@ -10,6 +10,8 @@ import math
 import os
 from collections import Counter
 
+from attack_judge_support import attack_margin as compute_attack_margin
+
 
 REGION_LABELS = {
     "auth": "AUTH",
@@ -167,9 +169,7 @@ def phi_payload(row: dict) -> dict:
 
 def attack_margin(row: dict) -> float | None:
     try:
-        return float(row["phi_data_attack"]) - (
-            float(row["phi_auth"]) + float(row["phi_data_fact"])
-        )
+        return compute_attack_margin(row["phi_data_attack"], row["phi_auth"], row["phi_data_fact"])
     except (KeyError, TypeError, ValueError):
         return None
 

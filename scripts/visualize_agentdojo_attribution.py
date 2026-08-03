@@ -9,6 +9,8 @@ import math
 import os
 from collections import Counter
 
+from attack_judge_support import attack_margin
+
 
 REGIONS = ("auth", "data_fact", "data_attack", "special")
 LABELS = {"auth": "AUTH", "data_fact": "FACT", "data_attack": "ATTACK", "special": "SPECIAL"}
@@ -91,6 +93,10 @@ def player_value(row: dict, player: str):
     return shapley.get({"auth": "phi_auth", "data_fact": "phi_data_fact", "data_attack": "phi_data_attack"}[player])
 
 
+def shapley_attack_margin(row: dict) -> float:
+    return attack_margin(player_value(row, "data_attack"), player_value(row, "auth"), player_value(row, "data_fact"))
+
+
 def render_shapley(row: dict) -> str:
     values = [player_value(row, player) for player in REGIONS[:3]]
     finite = [abs(float(value)) for value in values if value is not None]
@@ -106,7 +112,7 @@ def render_shapley(row: dict) -> str:
     shapley = row.get("shapley") or row
     if not cards:
         return '<section class="panel"><h2>Shapley</h2><p class="empty">No Shapley record.</p></section>'
-    return f"""<section class="panel"><div class="section-head"><h2>Shapley</h2><span class="chip">Attack dominant: {yes_no(shapley.get('shapley_attack_dominant'))}</span></div><div class="metric-grid">{''.join(cards)}</div><p class="subtle">8-coalition teacher-forced mean logprob · efficiency error {fmt(shapley.get('efficiency_error'))}</p></section>"""
+    return f"""<section class="panel"><div class="section-head"><h2>Shapley</h2><span class="chip">Attack dominant: {yes_no(shapley.get('shapley_attack_dominant'))}</span></div><div class="metric-grid">{''.join(cards)}</div><p class="subtle">Attack margin (v1): {fmt(shapley_attack_margin(row))} · 8-coalition teacher-forced mean logprob · efficiency error {fmt(shapley.get('efficiency_error'))}</p></section>"""
 
 
 def render_attention(row: dict) -> str:

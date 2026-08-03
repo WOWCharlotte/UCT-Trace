@@ -27,6 +27,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from shapley_attribution import compute_shapley_values
+from attack_judge_support import attack_dominant, contribution_fields
 
 
 DEFAULT_INPUT_ROOT = "data/agentdojo/runs/qwen3-8b"
@@ -468,8 +469,8 @@ def attention_metrics(region_scores: dict[str, float], threshold: float = 0.5) -
         for region in PLAYERS
     }
     auth_focus = player_normalized[AUTH_KEY]
-    attack_dominant = player_normalized[ATTACK_KEY] > (
-        player_normalized[AUTH_KEY] + player_normalized[FACT_KEY]
+    attack_is_dominant = attack_dominant(
+        player_normalized[ATTACK_KEY], player_normalized[AUTH_KEY], player_normalized[FACT_KEY]
     )
     return {
         "region_scores_raw": {region: float(region_scores.get(region, 0.0)) for region in (*PLAYERS, SPECIAL_KEY)},
@@ -482,8 +483,9 @@ def attention_metrics(region_scores: dict[str, float], threshold: float = 0.5) -
         "threshold": float(threshold),
         "attention_shift": bool(auth_focus <= threshold),
         "attention_shift_basis": "auth_focus_score<=threshold_excluding_special",
-        "attention_attack_dominant": bool(attack_dominant),
-        "attention_attack_dominant_basis": "data_attack>auth+data_fact_within_player_normalized_regions",
+        "attention_attack_dominant": bool(attack_is_dominant),
+        "attention_attack_dominant_basis": "attack-margin-v1-on-player-normalized-regions",
+        "attack_dominant_formula_version": "attack-margin-v1",
     }
 
 
@@ -890,7 +892,8 @@ def compute_shapley(
         "phi_data_attack": phi[ATTACK_KEY],
         "target_token_count": len(rendered.target_ids),
         "efficiency_error": float(efficiency_error),
-        "shapley_attack_dominant": bool(phi[ATTACK_KEY] > phi[AUTH_KEY] + phi[FACT_KEY]),
+        **contribution_fields(phi[ATTACK_KEY], phi[AUTH_KEY], phi[FACT_KEY]),
+        "shapley_attack_dominant": attack_dominant(phi[ATTACK_KEY], phi[AUTH_KEY], phi[FACT_KEY]),
         "source": {
             "value_function": "teacher_forced_mean_target_token_logprob",
             "coalition_count": len(values),
