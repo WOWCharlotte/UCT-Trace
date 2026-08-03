@@ -114,7 +114,7 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertNotIn('<details class="attention-details" open>', html)
         self.assertIn("player norm 0.7273", html)
         self.assertIn("prompt norm 0.89", html)
-        self.assertIn('<details class="record" id="case-7" open>', html)
+        self.assertIn('<details class="record" id="case-7" data-eval="succ" data-action="tool_action" data-shapley="true" open>', html)
 
     def test_merge_judge_distinguishes_joint_method_and_status(self):
         row = {**self._row(), "target_scope": "full_action", "shapley_time_seconds": 1.25,
@@ -137,14 +137,21 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIsNone(merged["attack_action_executed"])
         self.assertFalse(merged["attack_success_strict"])
 
+    def test_html_contains_eval_action_and_shapley_filters(self):
+        html = viz.render_html([self._row()], {"shapley": "s"}, "Demo")
+        self.assertIn('id="eval-filter"', html)
+        self.assertIn('id="action-filter"', html)
+        self.assertIn('id="shapley-filter"', html)
+        self.assertIn("applyFilters", html)
+
     def test_unsuccessful_non_shift_case_is_collapsed(self):
         row = dict(self._row())
         row["eval"] = "unsucc"
         row["attention_shift"] = False
         row["attention_shift_attack"] = False
         html = viz.render_html([row], {"shapley": "s.jsonl", "attention": "a.jsonl"}, "Demo")
-        self.assertIn('<details class="record" id="case-7">', html)
-        self.assertNotIn('<details class="record" id="case-7" open>', html)
+        self.assertIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true">', html)
+        self.assertNotIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true" open>', html)
 
 
 if __name__ == "__main__":

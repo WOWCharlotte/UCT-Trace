@@ -418,7 +418,7 @@ def render_action(row: dict) -> str:
 def render_record(row: dict) -> str:
     open_attr = " open" if should_expand_record(row) else ""
     return f"""
-    <details class="record" id="case-{html.escape(str(row.get("case_id")))}"{open_attr}>
+    <details class="record" id="case-{html.escape(str(row.get("case_id")))}" data-eval="{html.escape(str(row.get('eval', 'unknown')))}" data-action="{html.escape(str(row.get('action_kind', 'unknown')))}" data-shapley="{str(bool(row.get('shapley_attack_dominant'))).lower()}"{open_attr}>
       <summary>
         <span class="case-title">CASE {html.escape(str(row.get("case_id")))} · {html.escape(str(row.get("attack_type", "InjecAgent Action")))}</span>
         <span class="case-meta">{html.escape(str(row.get("eval", "unknown")).upper())} · {html.escape(str(row.get("action_kind", "unknown")))}</span>
@@ -483,6 +483,8 @@ def render_summary_cards(counts: dict) -> str:
 def render_html(rows: list[dict], source: dict, title: str) -> str:
     counts = summary_counts(rows)
     records = "\n".join(render_record(row) for row in rows)
+    eval_options = "".join(f'<option value="{html.escape(value)}">{html.escape(value)}</option>' for value in sorted({str(row.get("eval", "unknown")) for row in rows}))
+    action_options = "".join(f'<option value="{html.escape(value)}">{html.escape(value)}</option>' for value in sorted({str(row.get("action_kind", "unknown")) for row in rows}))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -513,6 +515,9 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
     .meta {{ color: var(--muted); display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }}
     .meta code, code {{ background: #eef2f7; border: 1px solid var(--line); border-radius: 5px; padding: 1px 4px; }}
     .overview {{ margin-bottom: 22px; }}
+    .filters {{ display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 16px; }}
+    .filters label {{ color: var(--muted); font-size: 12px; }}
+    .filters select {{ display: block; min-width: 150px; margin-top: 4px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: white; color: var(--text); }}
     .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 8px 22px rgba(16, 24, 40, 0.04); }}
     .panel h2 {{ margin: 0 0 12px; font-size: 18px; }}
     .panel h3 {{ margin: 18px 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0; }}
@@ -599,11 +604,33 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
       <div class="panel summary-panel">
         <h2>Summary</h2>
         <div class="summary-grid">{render_summary_cards(counts)}</div>
+        <div class="filters">
+          <label>Eval<select id="eval-filter"><option value="">All</option>{eval_options}</select></label>
+          <label>Action<select id="action-filter"><option value="">All</option>{action_options}</select></label>
+          <label>Shapley Attack Dominant<select id="shapley-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label>
+          <button id="clear-filters" type="button">Clear filters</button>
+        </div>
       </div>
     </section>
     {records}
   </main>
   <script>
+    function applyFilters() {{
+      const evalValue = document.getElementById("eval-filter").value;
+      const actionValue = document.getElementById("action-filter").value;
+      const shapleyValue = document.getElementById("shapley-filter").value;
+      document.querySelectorAll(".record").forEach((record) => {{
+        const matches = (!evalValue || record.dataset.eval === evalValue)
+          && (!actionValue || record.dataset.action === actionValue)
+          && (!shapleyValue || record.dataset.shapley === shapleyValue);
+        record.hidden = !matches;
+      }});
+    }}
+    document.querySelectorAll(".filters select").forEach((select) => select.addEventListener("change", applyFilters));
+    document.getElementById("clear-filters").addEventListener("click", () => {{
+      document.querySelectorAll(".filters select").forEach((select) => {{ select.value = ""; }});
+      applyFilters();
+    }});
     document.querySelectorAll(".token-toolbar input[type='checkbox']").forEach((box) => {{
       box.addEventListener("change", () => {{
         const panel = box.closest(".panel");
