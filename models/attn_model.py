@@ -3,6 +3,7 @@ from .model import Model
 from .utils import sample_token, get_last_attn
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch.nn.functional as F
+import os
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -10,15 +11,29 @@ class AttentionModel(Model):
     def __init__(self, config):
         super().__init__(config)
         self.name = config["model_info"]["name"]
-        self.max_output_tokens = int(config["params"]["max_output_tokens"])
+        params = config["params"]
+        self.max_output_tokens = int(params["max_output_tokens"])
         model_id = config["model_info"]["model_id"]
         self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+        torch_dtype = getattr(torch, str(params.get("torch_dtype", "bfloat16")))
+        device_map = params.get("device_map", device)
+        model_kwargs = {
+            "torch_dtype": torch_dtype,
+            "device_map": device_map,
+            "trust_remote_code": True,
+            "attn_implementation": "eager",
+        }
+        if params.get("max_memory"):
+            model_kwargs["max_memory"] = {
+                int(key) if str(key).isdigit() else key: value
+                for key, value in params["max_memory"].items()
+            }
+        if params.get("offload_folder"):
+            os.makedirs(params["offload_folder"], exist_ok=True)
+            model_kwargs["offload_folder"] = params["offload_folder"]
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            torch_dtype=torch.bfloat16,
-            device_map=device,
-            trust_remote_code=True,
-            attn_implementation="eager",
+            **model_kwargs,
         ).eval()
 
         self.top_k = 50
