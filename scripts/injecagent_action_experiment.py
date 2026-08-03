@@ -732,10 +732,7 @@ def action_dedup_key(row: dict, parsed: ParsedAction) -> tuple[str, str, str, st
 
 
 def shapley_targets(parsed: ParsedAction) -> list[tuple[str, str]]:
-    targets = [("full_action", parsed.text)]
-    if parsed.kind == "tool_action" and parsed.tool_name:
-        targets.append(("tool_name", parsed.tool_name))
-    return targets
+    return [("full_action", parsed.text)]
 
 
 def parse_case_ids(value: str | None) -> set[int] | None:

@@ -174,6 +174,10 @@ class InjecAgentActionParseTest(unittest.TestCase):
         self.assertEqual(parsed.kind, "final_answer")
         self.assertEqual(parsed.text, "Final Answer: Done.")
 
+    def test_shapley_targets_only_include_full_action(self):
+        parsed = inj.parse_action("Action: BankManagerPayBill\nAction Input: {'amount': 500}")
+        self.assertEqual(inj.shapley_targets(parsed), [("full_action", parsed.text)])
+
     def test_invalid_action_parse(self):
         parsed = inj.parse_action("<think>only reasoning</think>")
         self.assertEqual(parsed.kind, "invalid_action_parse")
