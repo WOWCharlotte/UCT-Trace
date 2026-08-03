@@ -114,7 +114,7 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertNotIn('<details class="attention-details" open>', html)
         self.assertIn("player norm 0.7273", html)
         self.assertIn("prompt norm 0.89", html)
-        self.assertIn('<details class="record" id="case-7" data-eval="succ" data-action="tool_action" data-shapley="true" open>', html)
+        self.assertIn('<details class="record" id="case-7" data-eval="succ" data-action="tool_action" data-shapley="true" data-joint="false" open>', html)
 
     def test_merge_judge_distinguishes_joint_method_and_status(self):
         row = {**self._row(), "target_scope": "full_action", "shapley_time_seconds": 1.25,
@@ -142,6 +142,8 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIn('id="eval-filter"', html)
         self.assertIn('id="action-filter"', html)
         self.assertIn('id="shapley-filter"', html)
+        self.assertIn('id="joint-filter"', html)
+        self.assertIn('data-joint="false"', html)
         self.assertIn("applyFilters", html)
         self.assertIn("record.classList.toggle(\"is-filtered\", !matches)", html)
         self.assertIn(".record.is-filtered", html)
@@ -165,8 +167,8 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         row["attention_shift"] = False
         row["attention_shift_attack"] = False
         html = viz.render_html([row], {"shapley": "s.jsonl", "attention": "a.jsonl"}, "Demo")
-        self.assertIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true">', html)
-        self.assertNotIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true" open>', html)
+        self.assertIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true" data-joint="false">', html)
+        self.assertNotIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true" data-joint="false" open>', html)
 
 
 if __name__ == "__main__":

@@ -418,7 +418,7 @@ def render_action(row: dict) -> str:
 def render_record(row: dict) -> str:
     open_attr = " open" if should_expand_record(row) else ""
     return f"""
-    <details class="record" id="case-{html.escape(str(row.get("case_id")))}" data-eval="{html.escape(str(row.get('eval', 'unknown')))}" data-action="{html.escape(str(row.get('action_kind', 'unknown')))}" data-shapley="{str(bool(row.get('shapley_attack_dominant'))).lower()}"{open_attr}>
+    <details class="record" id="case-{html.escape(str(row.get("case_id")))}" data-eval="{html.escape(str(row.get('eval', 'unknown')))}" data-action="{html.escape(str(row.get('action_kind', 'unknown')))}" data-shapley="{str(bool(row.get('shapley_attack_dominant'))).lower()}" data-joint="{str(bool(row.get('attack_success_strict'))).lower()}"{open_attr}>
       <summary>
         <span class="case-title">CASE {html.escape(str(row.get("case_id")))} · {html.escape(str(row.get("attack_type", "InjecAgent Action")))}</span>
         <span class="case-meta">{html.escape(str(row.get("eval", "unknown")).upper())} · {html.escape(str(row.get("action_kind", "unknown")))}</span>
@@ -609,6 +609,7 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
           <label>Eval<select id="eval-filter"><option value="">All</option>{eval_options}</select></label>
           <label>Action<select id="action-filter"><option value="">All</option>{action_options}</select></label>
           <label>Shapley Attack Dominant<select id="shapley-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label>
+          <label>Experiment Joint Method<select id="joint-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label>
           <button id="clear-filters" type="button">Clear filters</button>
         </div>
       </div>
@@ -620,10 +621,12 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
       const evalValue = document.getElementById("eval-filter").value;
       const actionValue = document.getElementById("action-filter").value;
       const shapleyValue = document.getElementById("shapley-filter").value;
+      const jointValue = document.getElementById("joint-filter").value;
       document.querySelectorAll(".record").forEach((record) => {{
         const matches = (!evalValue || record.dataset.eval === evalValue)
           && (!actionValue || record.dataset.action === actionValue)
-          && (!shapleyValue || record.dataset.shapley === shapleyValue);
+          && (!shapleyValue || record.dataset.shapley === shapleyValue)
+          && (!jointValue || record.dataset.joint === jointValue);
         record.classList.toggle("is-filtered", !matches);
       }});
     }}
