@@ -526,6 +526,7 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
     .summary-card span {{ display: block; color: var(--muted); font-size: 12px; margin-bottom: 5px; }}
     .summary-card strong {{ display: block; font-size: 20px; overflow-wrap: anywhere; }}
     .record {{ display: block; margin: 16px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 22px rgba(16, 24, 40, 0.04); overflow: hidden; }}
+    .record.is-filtered {{ display: none !important; }}
     .record > summary {{ cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 16px 18px; background: #fbfcfe; border-bottom: 1px solid var(--line); }}
     .record > summary::-webkit-details-marker {{ display: none; }}
     .record > summary::before {{ content: "v"; color: var(--muted); margin-right: 2px; }}
@@ -623,7 +624,7 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
         const matches = (!evalValue || record.dataset.eval === evalValue)
           && (!actionValue || record.dataset.action === actionValue)
           && (!shapleyValue || record.dataset.shapley === shapleyValue);
-        record.hidden = !matches;
+        record.classList.toggle("is-filtered", !matches);
       }});
     }}
     document.querySelectorAll(".filters select").forEach((select) => select.addEventListener("change", applyFilters));

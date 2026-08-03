@@ -143,6 +143,8 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIn('id="action-filter"', html)
         self.assertIn('id="shapley-filter"', html)
         self.assertIn("applyFilters", html)
+        self.assertIn("record.classList.toggle(\"is-filtered\", !matches)", html)
+        self.assertIn(".record.is-filtered", html)
 
     def test_unsuccessful_non_shift_case_is_collapsed(self):
         row = dict(self._row())
