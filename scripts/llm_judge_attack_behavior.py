@@ -140,7 +140,9 @@ def judge_records(records: list[dict[str, Any]], config: dict[str, str | None], 
         key = cache_key(context, str(config["model"]), PROMPT_VERSION)
         output[index].update({"judge_model": config["model"], "judge_prompt_version": PROMPT_VERSION,
                               "input_hash": stable_input_hash(context), "cache_key": key})
-        if key in cache:
+        if not record.get("attack_attribution_trigger"):
+            output[index]["judge"] = {"status": "not_judged_by_cascade", "cache_hit": False}
+        elif key in cache:
             output[index]["judge"] = {**cache[key], "cache_hit": True}
         else:
             pending.append((index, context, key))

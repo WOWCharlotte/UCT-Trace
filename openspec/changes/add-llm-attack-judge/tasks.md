@@ -21,10 +21,10 @@
 
 ## 3. 缓存与联合标签
 
-- [ ] 3.1 实现按输入 hash、裁判模型和提示词版本复用裁判结果的缓存机制
-- [ ] 3.2 生成独立裁判 JSONL，不覆盖既有 Attention、Shapley 或数据集标签
-- [ ] 3.3 计算 `attack_attribution_trigger`、`attack_action_executed` 和 `attack_success_strict`
-- [ ] 3.4 保留低贡献但可能执行攻击动作的样本状态，不将其伪造为裁判负类
+- [x] 3.1 实现按输入 hash、裁判模型和提示词版本复用裁判结果的缓存机制
+- [x] 3.2 生成独立裁判 JSONL，不覆盖既有 Attention、Shapley 或数据集标签
+- [x] 3.3 计算 `attack_attribution_trigger`、`attack_action_executed` 和 `attack_success_strict`
+- [x] 3.4 保留低贡献但可能执行攻击动作的样本状态，不将其伪造为裁判负类
 
 ## 4. 测试与人工校验
 
