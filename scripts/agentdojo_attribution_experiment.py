@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from collections import Counter, defaultdict
 import statistics
@@ -970,6 +971,18 @@ def player_texts(selected: SelectedCase) -> dict:
     return {AUTH_KEY: user, FACT_KEY: facts, ATTACK_KEY: attacks}
 
 
+def attribution_dedup_key(selected: SelectedCase) -> tuple[str, tuple[str, ...], tuple[str, ...], str]:
+    players = player_texts(selected)
+    target_message = selected.trajectory["messages"][selected.target_assistant_index]
+    target_text = str(target_message.get("content") or "")
+    return (
+        players[AUTH_KEY],
+        tuple(players[FACT_KEY]),
+        tuple(players[ATTACK_KEY]),
+        target_text,
+    )
+
+
 def fact_attack_lengths(selected: SelectedCase) -> tuple[int, int]:
     """Return character counts for FACT and ATTACK in the first polluted tool."""
     content = str(selected.trajectory["messages"][selected.polluted_tool_index].get("content") or "")
@@ -1104,6 +1117,23 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
             raise ValueError(f"No selected cases matched target ids from: {args.target_id_file}")
     if args.limit is not None:
         cases = cases[:args.limit]
+    unique_cases = []
+    seen_dedup_keys = set()
+    duplicate_count = 0
+    for case in cases:
+        dedup_key = attribution_dedup_key(case)
+        if dedup_key in seen_dedup_keys:
+            duplicate_count += 1
+            continue
+        seen_dedup_keys.add(dedup_key)
+        unique_cases.append(case)
+    cases = unique_cases
+    audit_summary = dict(audit_summary)
+    audit_summary["deduplication"] = {
+        "selected_count": len(cases) + duplicate_count,
+        "deduplicated_count": len(cases),
+        "duplicate_count": duplicate_count,
+    }
     if args.use_cache:
         attention_rows = [] if args.skip_attention else read_jsonl(attention_path)
         shapley_rows = [] if args.skip_shapley else read_jsonl(shapley_path)
@@ -1139,6 +1169,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
             if not validation["ok"]:
                 raise ValueError(f"Invalid player spans: {validation['issues']}")
             base = result_base(selected_case, rendered, spans, validation)
+            base["attention_time_seconds"] = 0.0
+            base["shapley_time_seconds"] = 0.0
         except Exception as error:
             failure = {
                 "schema_version": 1,
@@ -1149,6 +1181,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
                 "security": selected_case.trajectory.get("security"),
                 "utility": selected_case.trajectory.get("utility"),
                 "valid_for_stats": False,
+                "attention_time_seconds": 0.0,
+                "shapley_time_seconds": 0.0,
                 "error": f"{type(error).__name__}: {error}",
             }
             if needs_attention:
@@ -1167,6 +1201,7 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
             continue
         if needs_attention:
             row = dict(base)
+            attention_started = time.perf_counter()
             try:
                 row.update(compute_attention(
                     model,
@@ -1178,12 +1213,14 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
                 row["valid_for_stats"] = True
             except Exception as error:
                 row["error"] = f"{type(error).__name__}: {error}"
+            row["attention_time_seconds"] = float(time.perf_counter() - attention_started)
             attention_rows.append(row)
             attention_cache[selected_case.target_id] = row
             if args.use_cache:
                 append_jsonl(attention_path, row)
         if needs_shapley:
             row = dict(base)
+            shapley_started = time.perf_counter()
             try:
                 row.update(compute_shapley(
                     model,
@@ -1194,6 +1231,7 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
                 row["valid_for_stats"] = True
             except Exception as error:
                 row["error"] = f"{type(error).__name__}: {error}"
+            row["shapley_time_seconds"] = float(time.perf_counter() - shapley_started)
             shapley_rows.append(row)
             shapley_cache[selected_case.target_id] = row
             if args.use_cache:

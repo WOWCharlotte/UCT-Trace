@@ -19,6 +19,7 @@ import os
 import re
 import statistics
 import sys
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Iterable
@@ -715,6 +716,15 @@ def build_result_stub(row: dict, case_id: int, parsed: ParsedAction) -> dict:
     }
 
 
+def action_dedup_key(row: dict, parsed: ParsedAction) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("User Instruction", "")),
+        str(row.get("Tool Response", "")),
+        str(row.get("Attacker Instruction", "")),
+        parsed.text,
+    )
+
+
 def shapley_targets(parsed: ParsedAction) -> list[tuple[str, str]]:
     targets = [("full_action", parsed.text)]
     if parsed.kind == "tool_action" and parsed.tool_name:
@@ -768,9 +778,18 @@ def run_experiment(args) -> None:
 
     shapley_rows = []
     attention_rows = []
+    seen_dedup_keys = set()
+    duplicate_count = 0
     for case_id, row in tqdm(indexed_rows, desc="injecagent-action"):
         parsed = parse_action(row.get("output", ""))
         result = build_result_stub(row, case_id, parsed)
+        result["shapley_time_seconds"] = 0.0
+        result["attention_time_seconds"] = 0.0
+        dedup_key = action_dedup_key(row, parsed)
+        if dedup_key in seen_dedup_keys:
+            duplicate_count += 1
+            continue
+        seen_dedup_keys.add(dedup_key)
         if parsed.kind == "invalid_action_parse" or row.get("eval") == "invalid":
             shapley_rows.append(result)
             continue
@@ -790,6 +809,8 @@ def run_experiment(args) -> None:
             continue
 
         full_action_result = None
+        shapley_started = time.perf_counter()
+        scoped_results = []
         for target_scope, target_text in shapley_targets(parsed):
             scoped_result = dict(result)
             scoped_result["target_scope"] = target_scope
@@ -813,9 +834,15 @@ def run_experiment(args) -> None:
             if target_scope == "full_action":
                 full_action_result = scoped_result
             shapley_rows.append(scoped_result)
+            scoped_results.append(scoped_result)
+        shapley_time_seconds = time.perf_counter() - shapley_started
+        for scoped_result in scoped_results:
+            scoped_result["shapley_time_seconds"] = float(shapley_time_seconds)
 
         if not args.skip_attention:
+            attention_started = time.perf_counter()
             attention = compute_action_attention(model, prompt, parsed.text, spans, args.attention_top_k)
+            attention_time_seconds = time.perf_counter() - attention_started
             attention_row = {
                 "schema_version": 1,
                 "case_id": case_id,
@@ -825,9 +852,12 @@ def run_experiment(args) -> None:
                 "user_tool": row.get("User Tool"),
                 "action_kind": parsed.kind,
                 "action_tool": parsed.tool_name,
+                "attention_time_seconds": float(attention_time_seconds),
                 **attention,
             }
             attention_rows.append(attention_row)
+            for scoped_result in scoped_results:
+                scoped_result["attention_time_seconds"] = float(attention_time_seconds)
             if full_action_result is not None:
                 full_action_result["attention_shift"] = bool(attention.get("attention_shift", False))
                 full_action_result["attention_shift_attack"] = bool(attention.get("attention_shift_attack", False))
@@ -835,6 +865,10 @@ def run_experiment(args) -> None:
                 full_action_result["auth_focus_score"] = attention.get("auth_focus_score")
                 full_action_result["attention_threshold"] = attention.get("threshold")
                 full_action_result["attention_region_scores"] = attention.get("region_scores", {})
+
+
+    diagnostics["selection"]["deduplicated_count"] = len(seen_dedup_keys)
+    diagnostics["selection"]["duplicate_count"] = duplicate_count
 
     summary = summarize_results(shapley_rows, diagnostics)
     write_jsonl(args.shapley_output, shapley_rows)
