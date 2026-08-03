@@ -480,9 +480,15 @@ def render_summary_cards(counts: dict) -> str:
     )
 
 
-def render_html(rows: list[dict], source: dict, title: str) -> str:
+def render_html(rows: list[dict], source: dict, title: str, page_size: int = 20) -> str:
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
     counts = summary_counts(rows)
-    records = "\n".join(render_record(row) for row in rows)
+    pages = [rows[index:index + page_size] for index in range(0, len(rows), page_size)] or [[]]
+    page_templates = "".join(
+        f'<template id="records-page-{index}">{"".join(render_record(row) for row in page)}</template>'
+        for index, page in enumerate(pages)
+    )
     eval_options = "".join(f'<option value="{html.escape(value)}">{html.escape(value)}</option>' for value in sorted({str(row.get("eval", "unknown")) for row in rows}))
     action_options = "".join(f'<option value="{html.escape(value)}">{html.escape(value)}</option>' for value in sorted({str(row.get("action_kind", "unknown")) for row in rows}))
     return f"""<!doctype html>
@@ -612,17 +618,31 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
           <label>Experiment Joint Method<select id="joint-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label>
           <button id="clear-filters" type="button">Clear filters</button>
         </div>
+        <div class="pagination"><button id="previous-page" type="button">Previous</button><span id="page-label"></span><button id="next-page" type="button">Next</button></div>
       </div>
     </section>
-    {records}
+    <section id="record-container"></section>
+    <div class="page-templates">{page_templates}</div>
   </main>
   <script>
+    let currentPage = 0;
+    let visibleRows = [];
+    const pageCount = {len(pages)};
+    function renderPage() {{
+      const container = document.getElementById("record-container");
+      container.replaceChildren(document.getElementById(`records-page-${{currentPage}}`).content.cloneNode(true));
+      document.getElementById("page-label").textContent = `Page ${{currentPage + 1}} / ${{pageCount}}`;
+      document.getElementById("previous-page").disabled = currentPage === 0;
+      document.getElementById("next-page").disabled = currentPage === pageCount - 1;
+      bindTokenFilters();
+      applyFilters();
+    }}
     function applyFilters() {{
       const evalValue = document.getElementById("eval-filter").value;
       const actionValue = document.getElementById("action-filter").value;
       const shapleyValue = document.getElementById("shapley-filter").value;
       const jointValue = document.getElementById("joint-filter").value;
-      document.querySelectorAll(".record").forEach((record) => {{
+      document.querySelectorAll("#record-container .record").forEach((record) => {{
         const matches = (!evalValue || record.dataset.eval === evalValue)
           && (!actionValue || record.dataset.action === actionValue)
           && (!shapleyValue || record.dataset.shapley === shapleyValue)
@@ -630,20 +650,23 @@ def render_html(rows: list[dict], source: dict, title: str) -> str:
         record.classList.toggle("is-filtered", !matches);
       }});
     }}
+    function bindTokenFilters() {{
+      document.querySelectorAll(".token-toolbar input[type='checkbox']").forEach((box) => {{
+        box.addEventListener("change", () => {{
+          const panel = box.closest(".panel");
+          const region = box.dataset.filter;
+          panel.querySelectorAll(`.token-chip[data-region="${{region}}"]`).forEach((token) => token.classList.toggle("is-hidden", !box.checked));
+        }});
+      }});
+    }}
+    document.getElementById("previous-page").addEventListener("click", () => {{ if (currentPage > 0) {{ currentPage -= 1; renderPage(); }} }});
+    document.getElementById("next-page").addEventListener("click", () => {{ if (currentPage < pageCount - 1) {{ currentPage += 1; renderPage(); }} }});
     document.querySelectorAll(".filters select").forEach((select) => select.addEventListener("change", applyFilters));
     document.getElementById("clear-filters").addEventListener("click", () => {{
       document.querySelectorAll(".filters select").forEach((select) => {{ select.value = ""; }});
       applyFilters();
     }});
-    document.querySelectorAll(".token-toolbar input[type='checkbox']").forEach((box) => {{
-      box.addEventListener("change", () => {{
-        const panel = box.closest(".panel");
-        const region = box.dataset.filter;
-        panel.querySelectorAll(`.token-chip[data-region="${{region}}"]`).forEach((token) => {{
-          token.classList.toggle("is-hidden", !box.checked);
-        }});
-      }});
-    }});
+    renderPage();
   </script>
 </body>
 </html>
@@ -691,6 +714,7 @@ def main() -> None:
     parser.add_argument("--index", type=int, default=0, help="Record index when --case_id is not provided.")
     parser.add_argument("--all", action="store_true", help="Render all records into one gallery.")
     parser.add_argument("--limit", type=int, help="Optional limit in --all mode.")
+    parser.add_argument("--page-size", type=int, default=20, help="Number of records rendered in the active page.")
     parser.add_argument("--target-scope", choices=("full_action", "tool_name", "all"), default="full_action",
                         help="Target scope to display; defaults to one full-action record per case.")
     parser.add_argument("--title", default="InjecAgent Action-Level Attribution")
@@ -701,7 +725,7 @@ def main() -> None:
     judge_rows = read_jsonl(args.judge)
     case_rows = read_jsonl(args.cases)
     rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit, args.target_scope)
-    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "cases": args.cases}, args.title)
+    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "cases": args.cases}, args.title, args.page_size)
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(page)

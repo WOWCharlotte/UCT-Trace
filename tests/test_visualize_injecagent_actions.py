@@ -147,6 +147,9 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertIn("applyFilters", html)
         self.assertIn("record.classList.toggle(\"is-filtered\", !matches)", html)
         self.assertIn(".record.is-filtered", html)
+        self.assertIn('id="records-page-0"', html)
+        self.assertIn('id="previous-page"', html)
+        self.assertIn('id="next-page"', html)
 
     def test_prepare_rows_defaults_to_full_action_scope(self):
         full = {**self._row(), "target_scope": "full_action"}

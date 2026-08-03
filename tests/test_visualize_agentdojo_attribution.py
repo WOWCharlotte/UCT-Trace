@@ -87,9 +87,20 @@ class AgentDojoVisualizationTest(unittest.TestCase):
         self.assertIn("Prompt-Normalized Attention Including SPECIAL", page)
         self.assertIn('id="suite-filter"', page)
         self.assertIn('data-region-toggle="data_attack"', page)
+        self.assertIn('id="records-page-0"', page)
+        self.assertIn('id="previous-page"', page)
+        self.assertIn('id="next-page"', page)
+        self.assertIn("function renderPage()", page)
         self.assertIn("Polluted tool index", page)
         self.assertNotIn("<script>send_money()</script>", page)
         self.assertIn("&lt;script&gt;send_money()&lt;/script&gt;", page)
+
+    def test_page_size_limits_records_per_template(self):
+        rows = [{**base_row(), "target_id": str(index)} for index in range(3)]
+        page = viz.render_html(rows, {"shapley": "s"}, "Demo", page_size=2)
+        self.assertIn('id="records-page-0"', page)
+        self.assertIn('id="records-page-1"', page)
+        self.assertIn('const pageCount = 2;', page)
 
 
 if __name__ == "__main__":
