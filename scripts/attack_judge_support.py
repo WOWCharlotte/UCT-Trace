@@ -48,6 +48,9 @@ class JudgeInput:
     tool_definitions: str = ""
     target_tool_name: str | None = None
     target_tool_parameters: str | None = None
+    observed_tool_calls: list[dict[str, Any]] | None = None
+    observed_tool_results: list[dict[str, Any]] | None = None
+    execution_facts: dict[str, Any] | None = None
     source_path: str | None = None
     source_metadata: dict[str, Any] | None = None
 
@@ -70,6 +73,33 @@ def _first_value(row: dict[str, Any], names: Iterable[str], default: Any = "") -
         if name in row and row[name] is not None:
             return row[name]
     return default
+
+
+def text_value(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(item) for item in value)
+    return str(value or "")
+
+
+def normalized_tool_call(call: dict[str, Any]) -> dict[str, Any]:
+    function = call.get("function") or {}
+    if isinstance(function, dict):
+        name = function.get("name")
+        arguments = function.get("arguments", call.get("arguments", call.get("args")))
+    else:
+        name = str(function) if function else None
+        arguments = call.get("arguments", call.get("args"))
+    if not name:
+        raise ValueError("AgentDojo target tool call has no function name")
+    return {"id": call.get("id"), "name": str(name), "arguments": arguments or {}}
+
+
+def execution_status(tool_result: dict[str, Any]) -> str:
+    if tool_result.get("error"):
+        return "failed"
+    content = str(tool_result.get("content") or "")
+    failure_markers = ("error", "failed", "failure", "denied", "unable", "cannot", "not sent")
+    return "failed" if any(marker in content.lower() for marker in failure_markers) else "succeeded"
 
 
 def injecagent_input(row: dict[str, Any], case_id: str | int | None = None, tool_schema: str = "") -> JudgeInput:
@@ -96,27 +126,62 @@ def agentdojo_input(
     row: dict[str, Any], trajectory: dict[str, Any], polluted_tool_index: int | None = None,
     assistant_index: int | None = None,
 ) -> JudgeInput:
-    """Adapt a selected AgentDojo trajectory to the shared judge context."""
+    """Adapt a selected AgentDojo trajectory with explicit tool-execution evidence."""
     messages = trajectory.get("messages", [])
     tool_index = polluted_tool_index if polluted_tool_index is not None else row.get("polluted_tool_message_index")
     target_index = assistant_index if assistant_index is not None else row.get("target_assistant_message_index")
-    tool_message = messages[int(tool_index)] if tool_index is not None else {}
-    assistant_message = messages[int(target_index)] if target_index is not None else {}
+    if tool_index is None or target_index is None:
+        raise ValueError("AgentDojo judge input requires polluted tool and target assistant indices")
+    try:
+        tool_message = messages[int(tool_index)]
+        assistant_message = messages[int(target_index)]
+    except (IndexError, TypeError, ValueError) as error:
+        raise ValueError("AgentDojo judge message index is out of range") from error
+    if tool_message.get("role") != "tool" or assistant_message.get("role") != "assistant":
+        raise ValueError("AgentDojo judge indices do not identify tool then assistant messages")
     user_message = next((message for message in messages if message.get("role") == "user"), {})
-    tool_calls = assistant_message.get("tool_calls") or []
+    tool_calls = [normalized_tool_call(call) for call in assistant_message.get("tool_calls") or []]
+    if not tool_calls and not assistant_message.get("content"):
+        raise ValueError("AgentDojo target assistant has neither content nor tool calls")
+    results_by_call_id = {
+        message.get("tool_call_id"): message
+        for message in messages[int(target_index) + 1:]
+        if message.get("role") == "tool" and message.get("tool_call_id")
+    }
+    observed_results = []
+    successful_call_ids = []
+    for call in tool_calls:
+        result = results_by_call_id.get(call["id"])
+        status = "missing" if result is None else execution_status(result)
+        observed_results.append({
+            "tool_call_id": call["id"],
+            "tool_name": call["name"],
+            "status": status,
+            "result": None if result is None else str(result.get("content") or ""),
+            "error": None if result is None else result.get("error"),
+        })
+        if status == "succeeded":
+            successful_call_ids.append(call["id"])
     first_call = tool_calls[0] if tool_calls else {}
-    function = first_call.get("function") or {}
+    attack_text = row.get("attack_text") or row.get("data_attack") or (row.get("player_text") or {}).get("data_attack") or ""
     return JudgeInput(
         record_id=str(row.get("target_id") or row.get("case_id") or ""),
         dataset="agentdojo",
         user_task=str(user_message.get("content") or ""),
         tool_response=str(tool_message.get("content") or ""),
-        attack_text=str(row.get("attack_text") or row.get("data_attack") or (row.get("player_text") or {}).get("data_attack") or ""),
+        attack_text=text_value(attack_text),
         assistant_output=str(assistant_message.get("content") or ""),
         target_kind=str(row.get("target_kind") or ("tool" if tool_calls else "text")),
         tool_definitions=json.dumps(row.get("tool_definitions") or [], ensure_ascii=False, sort_keys=True),
-        target_tool_name=function.get("name"),
-        target_tool_parameters=function.get("arguments"),
+        target_tool_name=first_call.get("name"),
+        target_tool_parameters=first_call.get("arguments"),
+        observed_tool_calls=tool_calls,
+        observed_tool_results=observed_results,
+        execution_facts={
+            "target_assistant_has_tool_calls": bool(tool_calls),
+            "successful_tool_call_ids": successful_call_ids,
+            "successful_tool_call_count": len(successful_call_ids),
+        },
         source_path=row.get("source_path"),
         source_metadata={"security": trajectory.get("security"), "utility": trajectory.get("utility"), "eval": row.get("eval")},
     )

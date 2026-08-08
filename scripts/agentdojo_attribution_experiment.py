@@ -509,7 +509,7 @@ def clear_cuda_cache() -> None:
 def supports_forward_arg(model, name: str) -> bool:
     try:
         return name in inspect.signature(inner_model(model).forward).parameters
-    except (TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
@@ -725,15 +725,71 @@ def embedding_layer(model):
     raise AttributeError("Model does not expose get_input_embeddings")
 
 
+def teacher_forced_target_inputs(masked_prompt_embeds: torch.Tensor, target_embeds: torch.Tensor) -> torch.Tensor:
+    if masked_prompt_embeds.shape[1] == 0:
+        raise ValueError("Shapley prompt must contain at least one token")
+    if target_embeds.shape[1] == 0:
+        raise ValueError("Shapley target must contain at least one token")
+    return torch.cat([masked_prompt_embeds[:, -1:, :], target_embeds[:, :-1, :]], dim=1)
+
+
+def mean_target_logprob_from_logits(logits: torch.Tensor, target_ids: torch.Tensor) -> float:
+    target_count = target_ids.shape[1]
+    token_logits = logits[:, -target_count:, :]
+    if token_logits.shape[1] != target_count:
+        raise ValueError(
+            "Shapley target-logit alignment failed: "
+            f"expected {target_count} logits, got {token_logits.shape[1]}"
+        )
+    log_probs = F.log_softmax(token_logits.float(), dim=-1)
+    gathered = log_probs.gather(2, target_ids.unsqueeze(-1)).squeeze(-1)
+    result = float(gathered.mean().item())
+    del token_logits, log_probs, gathered
+    return result
+
+
+def prefill_embeds_with_kv_cache(model, embeds: torch.Tensor, chunk_size: int) -> tuple[object | None, int]:
+    if chunk_size <= 0:
+        raise ValueError("Shapley prefill chunk size must be positive")
+    past_key_values = None
+    attention_mask_len = 0
+    logits_to_keep = 1 if supports_forward_arg(model, "logits_to_keep") else None
+    for start in range(0, embeds.shape[1], chunk_size):
+        chunk = embeds[:, start:start + chunk_size, :]
+        attention_mask = torch.ones(
+            (1, attention_mask_len + chunk.shape[1]), device=embeds.device, dtype=torch.long
+        )
+        forward_kwargs = {
+            "inputs_embeds": chunk,
+            "attention_mask": attention_mask,
+            "past_key_values": past_key_values,
+            "use_cache": True,
+        }
+        if logits_to_keep is not None:
+            forward_kwargs["logits_to_keep"] = logits_to_keep
+        with torch.inference_mode():
+            output = inner_model(model)(**forward_kwargs)
+        past_key_values = output.past_key_values
+        attention_mask_len += chunk.shape[1]
+        del output, chunk, attention_mask
+    return past_key_values, attention_mask_len
+
+
 def mean_logprob_with_masked_regions_streaming(
     model,
     prompt_embeds: torch.Tensor,
     target_ids: torch.Tensor,
     spans: RegionSpans,
     masked_players: Iterable[str],
+    chunk_size: int = 16,
+    prefill_chunk_size: int = 256,
 ) -> float:
     if target_ids.shape[1] == 0:
         raise ValueError("Shapley target must contain at least one token")
+    if chunk_size <= 0:
+        raise ValueError("Shapley streaming chunk size must be positive")
+    if prefill_chunk_size <= 0:
+        raise ValueError("Shapley prefill chunk size must be positive")
     masked_embeds = prompt_embeds.clone()
     for player in masked_players:
         for start, end in spans.get(player, []):
@@ -743,25 +799,27 @@ def mean_logprob_with_masked_regions_streaming(
     attention_mask_len = 0
     if masked_embeds.shape[1] > 1:
         prefill_embeds = masked_embeds[:, :-1, :]
-        prefill_mask = torch.ones(prefill_embeds.shape[:2], device=prefill_embeds.device, dtype=torch.long)
-        with torch.inference_mode():
-            prefill_output = inner_model(model)(
-                inputs_embeds=prefill_embeds,
-                attention_mask=prefill_mask,
-                use_cache=True,
-            )
-        past_key_values = prefill_output.past_key_values
-        attention_mask_len = prefill_embeds.shape[1]
-        del prefill_output, prefill_embeds, prefill_mask
-        clear_cuda_cache()
-    current_embeds = masked_embeds[:, -1:, :]
+        past_key_values, attention_mask_len = prefill_embeds_with_kv_cache(
+            model, prefill_embeds, prefill_chunk_size
+        )
+        del prefill_embeds
+    # Each input position predicts the target token at the same position.  Feeding
+    # several positions at once preserves teacher forcing while avoiding one model
+    # invocation and allocator synchronization per target token.
+    teacher_forced_inputs = teacher_forced_target_inputs(masked_embeds, target_embeds)
     logprob_total = 0.0
     if supports_forward_arg(model, "logits_to_keep"):
-        logits_to_keep = 1
+        logits_to_keep = chunk_size
     else:
         logits_to_keep = None
-    for target_index in range(target_ids.shape[1]):
-        attention_mask = torch.ones((1, attention_mask_len + 1), device=current_embeds.device, dtype=torch.long)
+    for target_start in range(0, target_ids.shape[1], chunk_size):
+        current_embeds = teacher_forced_inputs[:, target_start:target_start + chunk_size, :]
+        current_target_ids = target_ids[:, target_start:target_start + current_embeds.shape[1]]
+        attention_mask = torch.ones(
+            (1, attention_mask_len + current_embeds.shape[1]),
+            device=current_embeds.device,
+            dtype=torch.long,
+        )
         forward_kwargs = {
             "inputs_embeds": current_embeds,
             "attention_mask": attention_mask,
@@ -772,17 +830,14 @@ def mean_logprob_with_masked_regions_streaming(
             forward_kwargs["logits_to_keep"] = logits_to_keep
         with torch.inference_mode():
             output = inner_model(model)(**forward_kwargs)
-        logits = output.logits[:, -1, :].float()
-        target_token_id = target_ids[:, target_index]
-        log_probs = F.log_softmax(logits, dim=-1)
-        logprob_total += float(log_probs.gather(1, target_token_id.unsqueeze(-1)).squeeze(-1).item())
+        logits = output.logits
+        block_mean_logprob = mean_target_logprob_from_logits(logits, current_target_ids)
+        logprob_total += block_mean_logprob * current_target_ids.shape[1]
         past_key_values = output.past_key_values
-        attention_mask_len += 1
-        current_embeds = target_embeds[:, target_index:target_index + 1, :]
-        del output, logits, log_probs, attention_mask
-        clear_cuda_cache()
+        attention_mask_len += current_embeds.shape[1]
+        del output, logits, current_embeds, current_target_ids, attention_mask
     result = logprob_total / target_ids.shape[1]
-    del masked_embeds, target_embeds, current_embeds, past_key_values
+    del masked_embeds, target_embeds, teacher_forced_inputs, past_key_values
     clear_cuda_cache()
     return result
 
@@ -801,7 +856,8 @@ def mean_logprob_with_masked_regions_full(
         for start, end in spans.get(player, []):
             masked_embeds[:, start:end, :] = 0.0
     target_embeds = embedding_layer(model)(target_ids)
-    full_embeds = torch.cat([masked_embeds, target_embeds], dim=1)
+    target_inputs = teacher_forced_target_inputs(masked_embeds, target_embeds)
+    full_embeds = torch.cat([masked_embeds[:, :-1, :], target_inputs], dim=1)
     attention_mask = torch.ones(full_embeds.shape[:2], device=full_embeds.device, dtype=torch.long)
     forward_kwargs = {
         "inputs_embeds": full_embeds,
@@ -812,15 +868,8 @@ def mean_logprob_with_masked_regions_full(
         forward_kwargs["logits_to_keep"] = target_ids.shape[1]
     with torch.inference_mode():
         output = inner_model(model)(**forward_kwargs)
-    prompt_len = prompt_embeds.shape[1]
-    if output.logits.shape[1] == target_ids.shape[1]:
-        token_logits = output.logits
-    else:
-        token_logits = output.logits[:, prompt_len - 1:prompt_len - 1 + target_ids.shape[1], :]
-    log_probs = F.log_softmax(token_logits.float(), dim=-1)
-    gathered = log_probs.gather(2, target_ids.unsqueeze(-1)).squeeze(-1)
-    result = float(gathered.mean().item())
-    del masked_embeds, target_embeds, full_embeds, attention_mask, output, token_logits, log_probs, gathered
+    result = mean_target_logprob_from_logits(output.logits, target_ids)
+    del masked_embeds, target_embeds, target_inputs, full_embeds, attention_mask, output
     clear_cuda_cache()
     return result
 
@@ -832,12 +881,20 @@ def mean_logprob_with_masked_regions(
     spans: RegionSpans,
     masked_players: Iterable[str],
     prefer_full_forward: bool = True,
+    streaming_chunk_size: int = 16,
+    prefill_chunk_size: int = 256,
 ) -> tuple[float, str, str | None]:
     if not prefer_full_forward:
         value = mean_logprob_with_masked_regions_streaming(
-            model, prompt_embeds, target_ids, spans, masked_players
+            model,
+            prompt_embeds,
+            target_ids,
+            spans,
+            masked_players,
+            chunk_size=streaming_chunk_size,
+            prefill_chunk_size=prefill_chunk_size,
         )
-        return value, "kv_cache_preemptive_for_long_sequence", None
+        return value, "kv_cache_chunked_preemptive_for_long_sequence", None
     try:
         value = mean_logprob_with_masked_regions_full(
             model, prompt_embeds, target_ids, spans, masked_players
@@ -848,9 +905,15 @@ def mean_logprob_with_masked_regions(
             raise
         clear_cuda_cache()
         value = mean_logprob_with_masked_regions_streaming(
-            model, prompt_embeds, target_ids, spans, masked_players
+            model,
+            prompt_embeds,
+            target_ids,
+            spans,
+            masked_players,
+            chunk_size=streaming_chunk_size,
+            prefill_chunk_size=prefill_chunk_size,
         )
-        return value, "kv_cache_fallback_after_cuda_oom", f"{type(error).__name__}: {error}"
+        return value, "kv_cache_chunked_fallback_after_cuda_oom", f"{type(error).__name__}: {error}"
 
 
 def compute_shapley(
@@ -858,7 +921,13 @@ def compute_shapley(
     rendered: RenderedTarget,
     spans: RegionSpans,
     full_forward_token_threshold: int = 1024,
+    streaming_chunk_size: int = 16,
+    prefill_chunk_size: int = 256,
 ) -> dict:
+    if streaming_chunk_size <= 0:
+        raise ValueError("Shapley streaming chunk size must be positive")
+    if prefill_chunk_size <= 0:
+        raise ValueError("Shapley prefill chunk size must be positive")
     device = model_device(model)
     prompt_ids = torch.tensor([rendered.prompt_ids], device=device, dtype=torch.long)
     target_ids = torch.tensor([rendered.target_ids], device=device, dtype=torch.long)
@@ -872,7 +941,14 @@ def compute_shapley(
         for coalition in itertools.combinations(PLAYERS, size):
             masked_players = [player for player in PLAYERS if player not in coalition]
             value, strategy, fallback_error = mean_logprob_with_masked_regions(
-                model, prompt_embeds, target_ids, spans, masked_players, prefer_full_forward=prefer_full_forward
+                model,
+                prompt_embeds,
+                target_ids,
+                spans,
+                masked_players,
+                prefer_full_forward=prefer_full_forward,
+                streaming_chunk_size=streaming_chunk_size,
+                prefill_chunk_size=prefill_chunk_size,
             )
             values[coalition] = value
             memory_strategies[coalition] = strategy
@@ -896,12 +972,16 @@ def compute_shapley(
         "shapley_attack_dominant": attack_dominant(phi[ATTACK_KEY], phi[AUTH_KEY], phi[FACT_KEY]),
         "source": {
             "value_function": "teacher_forced_mean_target_token_logprob",
+            "value_function_version": "teacher-forced-mean-logprob-v2",
+            "target_logit_alignment": "prompt-plus-target-prefix-predicts-full-target",
             "coalition_count": len(values),
             "masking": "zero_player_token_embeddings",
             "structure_preserved": ["token_count", "positions", "attention_mask", "fixed_context"],
             "target_scope": "next_assistant_message",
             "memory_strategy": "auto_full_forward_then_kv_cache_fallback",
             "full_forward_token_threshold": int(full_forward_token_threshold),
+            "streaming_chunk_size": int(streaming_chunk_size),
+            "prefill_chunk_size": int(prefill_chunk_size),
             "coalition_memory_strategies": {
                 "+".join(coalition) if coalition else "empty": strategy
                 for coalition, strategy in memory_strategies.items()
@@ -909,6 +989,12 @@ def compute_shapley(
             "fallback_errors": {
                 "+".join(coalition) if coalition else "empty": error
                 for coalition, error in fallback_errors.items()
+            },
+            "coalition_streaming_chunk_sizes": {
+                "+".join(coalition) if coalition else "empty": (
+                    int(streaming_chunk_size) if strategy.startswith("kv_cache_chunked") else None
+                )
+                for coalition, strategy in memory_strategies.items()
             },
         },
     }
@@ -1230,6 +1316,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
                     rendered,
                     spans,
                     full_forward_token_threshold=args.full_forward_token_threshold,
+                    streaming_chunk_size=args.shapley_streaming_chunk_size,
+                    prefill_chunk_size=args.shapley_prefill_chunk_size,
                 ))
                 row["valid_for_stats"] = True
             except Exception as error:
@@ -1260,6 +1348,13 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
     write_json(summary_path, summarize_outputs(audit_summary, attention_rows, shapley_rows))
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run AgentDojo next-assistant attribution.")
     parser.add_argument("--input-root", default=DEFAULT_INPUT_ROOT)
@@ -1280,6 +1375,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-attention", action="store_true")
     parser.add_argument("--skip-shapley", action="store_true")
     parser.add_argument("--attention-top-k", type=int, default=25)
+    parser.add_argument(
+        "--shapley-streaming-chunk-size",
+        type=positive_int,
+        default=16,
+        help="Target tokens evaluated per KV-cache Shapley forward; must be positive.",
+    )
+    parser.add_argument(
+        "--shapley-prefill-chunk-size",
+        type=positive_int,
+        default=256,
+        help="Prompt tokens evaluated per KV-cache Shapley prefill forward; must be positive.",
+    )
     parser.add_argument(
         "--full-forward-token-threshold",
         type=int,
