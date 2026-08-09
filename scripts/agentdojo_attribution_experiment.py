@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import gc
 import glob
+import hashlib
 import inspect
 import itertools
 import json
@@ -20,6 +21,14 @@ from typing import Iterable
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+from transformers.cache_utils import DynamicCache
+
+
+# Phi-3 remote code from older Transformers releases calls this renamed API.
+if not hasattr(DynamicCache, "get_usable_length"):
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+    DynamicCache.get_usable_length = _get_usable_length
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -203,8 +212,18 @@ def select_case(path: str, trajectory: dict) -> tuple[SelectedCase | None, str |
     ), None
 
 
-def qwen_message(message: dict) -> dict:
-    converted = {"role": message["role"], "content": message.get("content")}
+def mistral_tool_call_id(value: object) -> str:
+    """Return the 9-character alphanumeric id required by Mistral templates."""
+    raw = str(value or "tool-call")
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:9]
+
+
+def qwen_message(message: dict, *, normalize_mistral_ids: bool = False) -> dict:
+    # Phi-3's template concatenates message content directly. AgentDojo uses
+    # None for assistant messages that contain only a tool call.
+    converted = {"role": message["role"], "content": str(message.get("content") or "")}
+    if message.get("role") == "tool" and message.get("tool_call_id") is not None:
+        converted["tool_call_id"] = mistral_tool_call_id(message["tool_call_id"]) if normalize_mistral_ids else message["tool_call_id"]
     tool_calls = message.get("tool_calls")
     if message.get("role") == "assistant" and tool_calls:
         converted["tool_calls"] = [{
@@ -213,39 +232,47 @@ def qwen_message(message: dict) -> dict:
                 "name": call["function"],
                 "arguments": call.get("args", {}),
             },
-            "id": call.get("id"),
+            "id": mistral_tool_call_id(call.get("id")) if normalize_mistral_ids else call.get("id"),
         } for call in tool_calls]
     return converted
 
 
 def render_messages_for_tokenizer(tokenizer, messages: list[dict]) -> list[dict]:
-    rendered_messages = [qwen_message(message) for message in messages]
     tokenizer_name = str(getattr(tokenizer, "name_or_path", "")).casefold()
-    if "gemma" not in tokenizer_name or not any(message.get("role") == "system" for message in rendered_messages):
+    normalize_mistral_ids = "mistral" in tokenizer_name
+    is_gemma = "gemma" in tokenizer_name
+    is_phi3 = "phi-3" in tokenizer_name or "phi3" in tokenizer_name
+    rendered_messages = [qwen_message(message, normalize_mistral_ids=normalize_mistral_ids) for message in messages]
+    if not is_gemma and not is_phi3:
         return rendered_messages
-    system_content = "\n\n".join(
-        str(message.get("content") or "")
-        for message in rendered_messages
-        if message.get("role") == "system"
-    )
-    without_system = [message for message in rendered_messages if message.get("role") != "system"]
-    for index, message in enumerate(without_system):
-        if message.get("role") == "user":
-            without_system[index] = {
-                **message,
-                "content": f"{system_content}\n\n{message.get('content') or ''}",
-            }
-            break
+    if is_gemma:
+        if not any(message.get("role") == "system" for message in rendered_messages):
+            return rendered_messages
+        system_content = "\n\n".join(
+            str(message.get("content") or "")
+            for message in rendered_messages
+            if message.get("role") == "system"
+        )
+        source_messages = [message for message in rendered_messages if message.get("role") != "system"]
+        for index, message in enumerate(source_messages):
+            if message.get("role") == "user":
+                source_messages[index] = {
+                    **message,
+                    "content": system_content + "\n\n" + str(message.get("content") or ""),
+                }
+                break
+    else:
+        source_messages = rendered_messages
     normalized = []
-    for message in without_system:
+    for message in source_messages:
         role = message.get("role")
         if role == "tool":
             normalized.append({
                 "role": "user",
-                "content": f"[Tool result]\n{message.get('content') or ''}",
+                "content": "[Tool result]\n" + str(message.get("content") or ""),
             })
             continue
-        if role == "assistant" and message.get("tool_calls") and not message.get("content"):
+        if role == "assistant" and message.get("tool_calls") and (is_phi3 or not message.get("content")):
             calls = [
                 {
                     "name": call["function"]["name"],
@@ -253,9 +280,11 @@ def render_messages_for_tokenizer(tokenizer, messages: list[dict]) -> list[dict]
                 }
                 for call in message["tool_calls"]
             ]
+            tool_call_text = "[Tool call]\n" + json.dumps(calls, ensure_ascii=False)
+            content = str(message.get("content") or "")
             normalized.append({
                 "role": "assistant",
-                "content": f"[Tool call]\n{json.dumps(calls, ensure_ascii=False)}",
+                "content": content + "\n\n" + tool_call_text if content else tool_call_text,
             })
             continue
         normalized.append(message)
@@ -1235,10 +1264,10 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
         shapley_cache = {}
 
     def has_cached_attention(target_id_value: str) -> bool:
-        return args.skip_attention or target_id_value in attention_cache
+        return args.skip_attention or (target_id_value in attention_cache and attention_cache[target_id_value].get("valid_for_stats") is True)
 
     def has_cached_shapley(target_id_value: str) -> bool:
-        return args.skip_shapley or target_id_value in shapley_cache
+        return args.skip_shapley or (target_id_value in shapley_cache and shapley_cache[target_id_value].get("valid_for_stats") is True)
 
     remaining_cases = [
         case for case in cases
@@ -1247,8 +1276,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
 
     model = create_model(open_config(args.model_config)) if remaining_cases else None
     for selected_case in tqdm(remaining_cases, desc="AgentDojo attribution", unit="target"):
-        needs_attention = not args.skip_attention and selected_case.target_id not in attention_cache
-        needs_shapley = not args.skip_shapley and selected_case.target_id not in shapley_cache
+        needs_attention = not has_cached_attention(selected_case.target_id)
+        needs_shapley = not has_cached_shapley(selected_case.target_id)
         if not needs_attention and not needs_shapley:
             continue
         try:
@@ -1275,11 +1304,15 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
                 "error": f"{type(error).__name__}: {error}",
             }
             if needs_attention:
+                if args.use_cache:
+                    attention_rows[:] = [cached for cached in attention_rows if cached.get("target_id") != selected_case.target_id]
                 attention_rows.append(dict(failure))
                 attention_cache[selected_case.target_id] = attention_rows[-1]
                 if args.use_cache:
                     append_jsonl(attention_path, attention_rows[-1])
             if needs_shapley:
+                if args.use_cache:
+                    shapley_rows[:] = [cached for cached in shapley_rows if cached.get("target_id") != selected_case.target_id]
                 shapley_rows.append(dict(failure))
                 shapley_cache[selected_case.target_id] = shapley_rows[-1]
                 if args.use_cache:
@@ -1303,6 +1336,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
             except Exception as error:
                 row["error"] = f"{type(error).__name__}: {error}"
             row["attention_time_seconds"] = float(time.perf_counter() - attention_started)
+            if args.use_cache:
+                attention_rows[:] = [cached for cached in attention_rows if cached.get("target_id") != selected_case.target_id]
             attention_rows.append(row)
             attention_cache[selected_case.target_id] = row
             if args.use_cache:
@@ -1323,6 +1358,8 @@ def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audi
             except Exception as error:
                 row["error"] = f"{type(error).__name__}: {error}"
             row["shapley_time_seconds"] = float(time.perf_counter() - shapley_started)
+            if args.use_cache:
+                shapley_rows[:] = [cached for cached in shapley_rows if cached.get("target_id") != selected_case.target_id]
             shapley_rows.append(row)
             shapley_cache[selected_case.target_id] = row
             if args.use_cache:
@@ -1367,7 +1404,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--action-targets-only", action="store_true", help="Only run tool_calls or mixed next-assistant targets.")
     parser.add_argument("--min-fact-chars", type=int, default=500)
     parser.add_argument("--max-fact-chars", type=int, default=100000)
-    parser.add_argument("--fact-ratio", type=float, default=2.0)
+    parser.add_argument("--fact-ratio", type=float, default=1.0)
     parser.add_argument("--rank-by-fact-ratio", action="store_true")
     parser.add_argument("--target-id")
     parser.add_argument("--target-id-file", help="Run only target ids listed one per line; blank lines and # comments are ignored.")

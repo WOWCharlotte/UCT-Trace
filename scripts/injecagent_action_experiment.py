@@ -27,6 +27,17 @@ from typing import Iterable
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
+from transformers.cache_utils import DynamicCache
+
+
+# Phi-3 remote code from older Transformers releases calls this renamed API.
+# Transformers 4.55 exposes the equivalent sequence length as get_seq_length.
+if not hasattr(DynamicCache, "get_usable_length"):
+    def _get_usable_length(self, new_seq_length, layer_idx=0):
+        return self.get_seq_length(layer_idx)
+
+    DynamicCache.get_usable_length = _get_usable_length
+
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

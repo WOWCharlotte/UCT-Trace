@@ -2,7 +2,7 @@
     "model_info": {
         "provider": "attn-hf",
         "name": "phi3-attn",
-        "model_id": "microsoft/Phi-3-mini-128k-instruct"
+        "model_id": "/root/autodl-tmp/hf_models/microsoft--Phi-3-mini-128k-instruct"
     },
     "params": {
         "temperature": 0.1,

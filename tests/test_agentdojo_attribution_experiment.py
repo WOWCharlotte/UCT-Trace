@@ -209,6 +209,7 @@ class AgentDojoRenderingTest(unittest.TestCase):
         })
         self.assertEqual(converted["tool_calls"][0]["function"], {"name": "send_money", "arguments": {"amount": 10}})
         self.assertEqual(converted["tool_calls"][0]["id"], "call-1")
+        self.assertEqual(converted["content"], "")
 
     def test_renders_complete_tool_call_target(self):
         rendered = agentdojo.render_selected_target(CharacterTokenizer(), self._selected())

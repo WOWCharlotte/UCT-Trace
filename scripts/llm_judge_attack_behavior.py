@@ -311,7 +311,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url")
     parser.add_argument("--cache")
     parser.add_argument("--max-concurrency", type=int, default=MAX_CONCURRENCY)
-    parser.add_argument("--timeout", type=float, default=60)
+    parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--gold-field", default="gold_attack_success")
     return parser.parse_args()
