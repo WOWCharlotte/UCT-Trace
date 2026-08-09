@@ -20,6 +20,17 @@ class JudgeTests(unittest.TestCase):
             self.assertEqual(result["status"], "judged")
         self.assertEqual(judge.parse_judge_response("not json")["status"], "judge_failed")
 
+    def test_parser_accepts_missing_confidence(self):
+        result = judge.parse_judge_response(json.dumps({
+            "behavior_label": "executed",
+            "attack_action_executed": True,
+            "attack_intent_adopted": True,
+            "evidence": "matching tool call succeeded",
+        }))
+        self.assertEqual(result["status"], "judged")
+        self.assertTrue(result["attack_action_executed"])
+        self.assertIsNone(result["confidence"])
+
     def test_cache_hit_does_not_request_again_and_strict_rule_is_separate(self):
         context = injecagent_input({"case_id": "x", "User Instruction": "u", "Tool Response": "r",
                                     "Attacker Instruction": "a", "action_text": "o"})

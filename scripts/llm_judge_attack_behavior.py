@@ -114,12 +114,13 @@ def parse_judge_response(raw_response: str) -> dict[str, Any]:
         return {"status": "judge_failed", "parse_error": "boolean_fields_required", "raw_response": raw_response}
     if label != "executed" and executed:
         return {"status": "judge_failed", "parse_error": "non_executed_label_marked_executed", "raw_response": raw_response}
-    try:
-        confidence = float(confidence)
-    except (TypeError, ValueError):
-        return {"status": "judge_failed", "parse_error": "confidence_must_be_number", "raw_response": raw_response}
-    if not 0 <= confidence <= 1:
-        return {"status": "judge_failed", "parse_error": "confidence_out_of_range", "raw_response": raw_response}
+    if confidence is not None:
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            return {"status": "judge_failed", "parse_error": "confidence_must_be_number", "raw_response": raw_response}
+        if not 0 <= confidence <= 1:
+            return {"status": "judge_failed", "parse_error": "confidence_out_of_range", "raw_response": raw_response}
     return {"status": "judged", "behavior_label": label, "attack_action_executed": executed,
             "attack_intent_adopted": intent, "evidence": str(parsed.get("evidence", "")),
             "confidence": confidence, "raw_response": raw_response, "parse_error": None}
