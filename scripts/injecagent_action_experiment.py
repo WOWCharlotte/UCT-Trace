@@ -823,9 +823,9 @@ def run_experiment(args) -> None:
             continue
 
         full_action_result = None
-        shapley_started = time.perf_counter()
+        shapley_started = time.perf_counter() if not args.skip_shapley else None
         scoped_results = []
-        for target_scope, target_text in shapley_targets(parsed):
+        for target_scope, target_text in (shapley_targets(parsed) if not args.skip_shapley else []):
             scoped_result = dict(result)
             scoped_result["target_scope"] = target_scope
             scoped_result["target_text"] = target_text
@@ -849,7 +849,7 @@ def run_experiment(args) -> None:
                 full_action_result = scoped_result
             shapley_rows.append(scoped_result)
             scoped_results.append(scoped_result)
-        shapley_time_seconds = time.perf_counter() - shapley_started
+        shapley_time_seconds = (time.perf_counter() - shapley_started) if not args.skip_shapley else 0.0
         for scoped_result in scoped_results:
             scoped_result["shapley_time_seconds"] = float(shapley_time_seconds)
 
@@ -909,6 +909,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gallery_output")
     parser.add_argument("--attention_top_k", type=int, default=25)
     parser.add_argument("--skip_attention", action="store_true")
+    parser.add_argument("--skip_shapley", action="store_true")
     parser.add_argument("--include_all_tools", action="store_true")
     parser.add_argument("--allow_alignment_mismatch", action="store_true")
     parser.add_argument("--validate_only", action="store_true")

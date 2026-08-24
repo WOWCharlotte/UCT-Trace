@@ -49,6 +49,9 @@ ATTACK_TYPE = "important_instructions"
 INFORMATION_RE = re.compile(r"<INFORMATION>.*?</INFORMATION>", re.DOTALL | re.IGNORECASE)
 
 
+LLAMA3_CHAT_TEMPLATE = """{% for message in messages %}{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>\\n\\n' + (message['content'] or '') | trim + '<|eot_id|>' }}{% endfor %}{% if add_generation_prompt %}{{ '<|start_header_id|>assistant<|end_header_id|>\\n\\n' }}{% endif %}"""
+
+
 @dataclass(frozen=True)
 class SelectedCase:
     source_path: str
@@ -242,8 +245,9 @@ def render_messages_for_tokenizer(tokenizer, messages: list[dict]) -> list[dict]
     normalize_mistral_ids = "mistral" in tokenizer_name
     is_gemma = "gemma" in tokenizer_name
     is_phi3 = "phi-3" in tokenizer_name or "phi3" in tokenizer_name
+    is_llama = "llama" in tokenizer_name
     rendered_messages = [qwen_message(message, normalize_mistral_ids=normalize_mistral_ids) for message in messages]
-    if not is_gemma and not is_phi3:
+    if not is_gemma and not is_phi3 and not is_llama:
         return rendered_messages
     if is_gemma:
         if not any(message.get("role") == "system" for message in rendered_messages):
@@ -272,7 +276,7 @@ def render_messages_for_tokenizer(tokenizer, messages: list[dict]) -> list[dict]
                 "content": "[Tool result]\n" + str(message.get("content") or ""),
             })
             continue
-        if role == "assistant" and message.get("tool_calls") and (is_phi3 or not message.get("content")):
+        if role == "assistant" and message.get("tool_calls") and (is_phi3 or is_llama or not message.get("content")):
             calls = [
                 {
                     "name": call["function"]["name"],
@@ -304,6 +308,9 @@ def assistant_target_kind(message: dict) -> str:
 
 
 def render_selected_target(tokenizer, selected: SelectedCase) -> RenderedTarget:
+    tokenizer_name = str(getattr(tokenizer, "name_or_path", "")).casefold()
+    if not getattr(tokenizer, "chat_template", None) and "llama" in tokenizer_name:
+        tokenizer.chat_template = LLAMA3_CHAT_TEMPLATE
     source_messages = selected.trajectory["messages"]
     rendered_messages = render_messages_for_tokenizer(
         tokenizer, source_messages[:selected.target_assistant_index + 1]

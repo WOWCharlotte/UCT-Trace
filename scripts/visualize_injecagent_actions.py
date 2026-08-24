@@ -712,7 +712,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, help="HTML output path.")
     parser.add_argument("--case_id", help="Render a specific case_id.")
     parser.add_argument("--index", type=int, default=0, help="Record index when --case_id is not provided.")
-    parser.add_argument("--all", action="store_true", help="Render all records into one gallery.")
+    parser.add_argument("--all", default=True,action="store_true", help="Render all records into one gallery.")
     parser.add_argument("--limit", type=int, help="Optional limit in --all mode.")
     parser.add_argument("--page-size", type=int, default=20, help="Number of records rendered in the active page.")
     parser.add_argument("--target-scope", choices=("full_action", "tool_name", "all"), default="full_action",

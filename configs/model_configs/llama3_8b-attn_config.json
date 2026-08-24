@@ -2,7 +2,7 @@
     "model_info": {
         "provider": "attn-hf",
         "name": "llama3-8b-attn-tensor",
-        "model_id": "meta-llama/Meta-Llama-3-8B-Instruct"
+        "model_id": "/root/autodl-tmp/hf_models/Meta-Llama-3.1-8B"
     },
     "params": {
         "temperature": 0.1,

@@ -1,0 +1,12 @@
+{
+    "model_info": {
+        "provider": "attn-hf",
+        "name": "phi3-attn-late",
+        "model_id": "/root/autodl-tmp/hf_models/microsoft--Phi-3-mini-128k-instruct"
+    },
+    "params": {
+        "temperature": 0.1,
+        "max_output_tokens": 32,
+        "important_heads": [[20, 2], [20, 17], [22, 9], [22, 26], [24, 4], [24, 20], [26, 12], [26, 29], [28, 7], [28, 23]]
+    }
+}
