@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 
-from detector.attn import AttentionDetector
-from detector.utils import process_attn
-from utils import create_model, open_config
+from baselines.attention_tracker.detector.attn import AttentionDetector
+from baselines.attention_tracker.detector.utils import process_attn
+from baselines.attention_tracker.utils import create_model, open_config
 from shapley_attribution import shapley_for_row, shapley_rows as compute_shapley_rows
 
 

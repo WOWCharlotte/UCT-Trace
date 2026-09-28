@@ -618,7 +618,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    from utils import create_model, open_config
+    from baselines.attention_tracker.utils import create_model, open_config
 
     granularities = ("coarse", "fine") if args.granularity == "both" else (args.granularity,)
     rows = read_jsonl(args.input, args.limit)

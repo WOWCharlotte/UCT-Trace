@@ -34,6 +34,9 @@ if not hasattr(DynamicCache, "get_usable_length"):
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 
 from shapley_attribution import compute_shapley_values
 from attack_judge_support import attack_dominant, contribution_fields
@@ -1202,7 +1205,7 @@ def write_text(path: str, content: str) -> None:
 
 
 def run_attribution(args: argparse.Namespace, selected: list[SelectedCase], audit_summary: dict) -> None:
-    from utils import create_model, open_config
+    from baselines.attention_tracker.utils import create_model, open_config
     from visualize_agentdojo_attribution import merge_rows, render_html
 
     attention_path = os.path.join(args.output_dir, "results.attention.jsonl")

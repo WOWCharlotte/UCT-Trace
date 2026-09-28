@@ -49,7 +49,7 @@ if SCRIPT_DIR not in sys.path:
 
 from shapley_attribution import compute_shapley_values
 from attack_judge_support import attack_dominant, attack_margin, contribution_fields
-from utils import create_model, open_config
+from baselines.attention_tracker.utils import create_model, open_config
 
 
 AUTH_KEY = "auth"
