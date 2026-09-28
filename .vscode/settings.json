@@ -1,4 +1,29 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda"
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "latex-workshop.latex.tools": [
+        {
+            "name": "tectonic (Docker)",
+            "command": "docker",
+            "args": [
+                "run",
+                "--rm",
+                "-i",
+                "-v",
+                "${workspaceFolder}:/workdir",
+                "-w",
+                "/workdir/docs",
+                "inf4/tectonic@sha256:c312b46fc3b3b24004078c281917c85ad7f5b6a15931c2e9772fc5a96f20c00",
+                "tectonic",
+                "%DOC%"
+            ]
+        }
+    ],
+    "latex-workshop.latex.recipes": [
+        {
+            "name": "tectonic (Docker)",
+            "tools": ["tectonic (Docker)"]
+        }
+    ],
+    "latex-workshop.latex.recipe.default": "tectonic (Docker)"
 }
