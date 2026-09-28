@@ -1,6 +1,6 @@
 # Third-party material
 
-The MIT license in this repository covers original UTC-Trace contributions to the extent their contributors hold the relevant rights. It does not replace the licenses of included third-party material.
+The MIT license in this repository covers original UCT-Trace contributions to the extent their contributors hold the relevant rights. It does not replace the licenses of included third-party material.
 
 ## Attention Tracker
 

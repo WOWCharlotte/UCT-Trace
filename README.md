@@ -1,8 +1,8 @@
-# UTC-Trace
+# UCT-Trace
 
 [简体中文](README_zh.md)
 
-UTC-Trace studies **unauthorized control transfer** in tool-using LLM agents. It explains whether an observed assistant response or tool call is supported by the user's instruction, task-relevant facts in a tool result, or injected instructions in that result. The manuscript calls the method **UCT-Trace**; this repository uses the requested name **UTC-Trace**.
+UCT-Trace studies **unauthorized control transfer** in tool-using LLM agents. It explains whether an observed assistant response or tool call is supported by the user's instruction, task-relevant facts in a tool result, or injected instructions in that result. The manuscript calls the method **UCT-Trace**; this repository uses the requested name **UCT-Trace**.
 
 The repository contains action-level experiments for **InjecAgent** and **AgentDojo**, an Attention Tracker baseline, a separate behavioral judge, and analysis scripts. Attribution requires access to model weights and token log probabilities; an API-only model is insufficient for that stage.
 
@@ -61,4 +61,4 @@ For AgentDojo, start with `python scripts/agentdojo_attribution_experiment.py --
 
 ## License and upstream material
 
-Original UTC-Trace contributions are licensed under the [MIT License](LICENSE). The included Attention Tracker baseline originates from [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker), whose upstream README specifies **CC BY-NC 4.0**. That material and third-party datasets are **not relicensed by the MIT grant**. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before reuse.
+Original UCT-Trace contributions are licensed under the [MIT License](LICENSE). The included Attention Tracker baseline originates from [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker), whose upstream README specifies **CC BY-NC 4.0**. That material and third-party datasets are **not relicensed by the MIT grant**. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before reuse.

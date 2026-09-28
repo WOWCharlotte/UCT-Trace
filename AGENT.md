@@ -1,6 +1,6 @@
 # Agent Guide: Environment Setup and First Run
 
-Use this guide when helping someone set up and run UTC-Trace. The goal is to check the environment, install dependencies, validate the bundled data, and complete a first small run with reproducible commands. See [README.md](README.md) for the project overview and [README_zh.md](README_zh.md) for its Chinese version. Run every command from the repository root.
+Use this guide when helping someone set up and run UCT-Trace. The goal is to check the environment, install dependencies, validate the bundled data, and complete a first small run with reproducible commands. See [README.md](README.md) for the project overview and [README_zh.md](README_zh.md) for its Chinese version. Run every command from the repository root.
 
 ## Confirm the starting conditions
 

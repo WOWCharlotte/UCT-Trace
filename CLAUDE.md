@@ -1,4 +1,4 @@
-# Claude Guide: UTC-Trace
+# Claude Guide: UCT-Trace
 
 When helping a user set up this repository or run an experiment, follow the sequence in [AGENT.md](AGENT.md). Use [README.md](README.md) and [README_zh.md](README_zh.md) for project context. Run commands from the repository root.
 
@@ -10,6 +10,6 @@ When helping a user set up this repository or run an experiment, follow the sequ
 4. Start attribution with `python scripts/injecagent_action_experiment.py --model_name qwen3_8b-attn --limit 1`. If using a local config copy, change `--model_name` accordingly. Inspect the JSONL and summary files in `result/injecagent_qwen3_dh/`.
 5. Audit attribution candidates locally with `--mode audit`. Run `--mode judge` only after the user provides a judge service and credentials. Never expose or commit API keys.
 
-For AgentDojo, first run `python scripts/agentdojo_attribution_experiment.py --audit-only`, verify the corpus and model configuration, then try `--limit 1 --use-cache`. If the user wants only the Attention Tracker baseline, its entry points are under `baselines/attention_tracker/`; do not present a baseline detection result as a UTC-Trace behavioral judgment.
+For AgentDojo, first run `python scripts/agentdojo_attribution_experiment.py --audit-only`, verify the corpus and model configuration, then try `--limit 1 --use-cache`. If the user wants only the Attention Tracker baseline, its entry points are under `baselines/attention_tracker/`; do not present a baseline detection result as a UCT-Trace behavioral judgment.
 
 At the end, report which stages actually completed, their output paths, and the specific information needed for the next stage. Missing model weights should not prevent checks that do not load a model.

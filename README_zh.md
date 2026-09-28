@@ -1,8 +1,8 @@
-# UTC-Trace
+# UCT-Trace
 
 [English](README.md)
 
-UTC-Trace 用于研究工具型大语言模型代理中的**未经授权的控制转移**。它解释一条已观测的助手回复或工具调用，主要得到用户指令、工具结果中的任务事实，还是其中的注入指令支持。论文将方法称为 **UCT-Trace**；本仓库按项目要求使用 **UTC-Trace** 作为名称。
+UCT-Trace 用于研究工具型大语言模型代理中的**未经授权的控制转移**。它解释一条已观测的助手回复或工具调用，主要得到用户指令、工具结果中的任务事实，还是其中的注入指令支持。论文将方法称为 **UCT-Trace**；本仓库按项目要求使用 **UCT-Trace** 作为名称。
 
 仓库包含 **InjecAgent** 与 **AgentDojo** 的动作级实验、Attention Tracker 对照基线、独立的行为裁判和分析脚本。归因阶段需要访问模型权重与输出 token 概率，仅有模型聊天 API 不足以运行该阶段。
 
@@ -61,4 +61,4 @@ AgentDojo 可先运行 `python scripts/agentdojo_attribution_experiment.py --aud
 
 ## 许可证与上游材料
 
-UTC-Trace 的原创贡献采用 [MIT 许可证](LICENSE)。仓库包含来自 [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker) 的基线代码；其上游 README 标注 **CC BY-NC 4.0**。这部分材料及第三方数据**不会因本仓库采用 MIT 而重新授权**。复用前请阅读 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+UCT-Trace 的原创贡献采用 [MIT 许可证](LICENSE)。仓库包含来自 [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker) 的基线代码；其上游 README 标注 **CC BY-NC 4.0**。这部分材料及第三方数据**不会因本仓库采用 MIT 而重新授权**。复用前请阅读 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
