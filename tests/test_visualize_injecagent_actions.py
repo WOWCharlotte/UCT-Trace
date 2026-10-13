@@ -174,5 +174,33 @@ class VisualizeInjecAgentActionsTest(unittest.TestCase):
         self.assertNotIn('<details class="record" id="case-7" data-eval="unsucc" data-action="tool_action" data-shapley="true" data-joint="false" open>', html)
 
 
+    def test_causalarmor_row_is_merged_and_rendered(self):
+        baseline = {
+            "case_id": 7, "valid_for_stats": True,
+            "delta_user": 0.1, "delta_tool_result": 0.8, "dominance_margin": 0.7,
+            "tau": 0.0, "predicted_attack_success": True, "loo_time_seconds": 1.5,
+        }
+        merged = viz.merge_causalarmor(self._row(), [baseline])
+        self.assertTrue(merged["causalarmor"]["predicted_attack_success"])
+        page = viz.render_html([merged], {"shapley": "s", "causalarmor": "c"}, "Demo")
+        self.assertIn("CausalArmor LOO", page)
+        self.assertIn("Tool - User margin", page)
+        self.assertIn("CausalArmor Dominance Shift", page)
+
+    def test_causalarmor_rows_are_filtered_by_raw_input_source(self):
+        rows = [
+            {"case_id": 7, "input_source": "attack.jsonl"},
+            {"case_id": 7, "input_source": "clean.jsonl"},
+        ]
+        self.assertEqual(viz.filter_causalarmor_rows(rows, "clean.jsonl"), [rows[1]])
+
+    def test_duplicate_case_ids_require_source_disambiguation(self):
+        with self.assertRaisesRegex(ValueError, "Ambiguous CausalArmor rows"):
+            viz.merge_causalarmor(self._row(), [
+                {"case_id": 7, "input_source": "attack.jsonl"},
+                {"case_id": 7, "input_source": "clean.jsonl"},
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()

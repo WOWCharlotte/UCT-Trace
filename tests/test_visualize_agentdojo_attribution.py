@@ -103,5 +103,20 @@ class AgentDojoVisualizationTest(unittest.TestCase):
         self.assertIn('const pageCount = 2;', page)
 
 
+    def test_causalarmor_row_is_merged_and_rendered(self):
+        shapley = {**base_row(), "phi_auth": 0.1, "phi_data_fact": 0.2, "phi_data_attack": 0.3}
+        causalarmor = {
+            "target_id": base_row()["target_id"], "valid_for_stats": True,
+            "delta_user": 0.1, "delta_tool_result": 0.8, "dominance_margin": 0.7,
+            "tau": 0.0, "predicted_attack_success": True, "loo_time_seconds": 1.5,
+        }
+        merged = viz.merge_rows([shapley], [], causalarmor_rows=[causalarmor])
+        self.assertTrue(merged[0]["causalarmor"]["predicted_attack_success"])
+        page = viz.render_html(merged, {"shapley": "s", "causalarmor": "c"}, "Demo")
+        self.assertIn("CausalArmor LOO", page)
+        self.assertIn("Tool - User margin", page)
+        self.assertIn("CausalArmor Dominance Shift", page)
+
+
 if __name__ == "__main__":
     unittest.main()

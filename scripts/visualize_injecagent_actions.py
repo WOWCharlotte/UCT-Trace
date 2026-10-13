@@ -88,6 +88,31 @@ def merge_attention(row: dict, attn_by_case: dict[str, dict]) -> dict:
     return row
 
 
+def filter_causalarmor_rows(rows: list[dict], cases_path: str) -> list[dict]:
+    """Select the independent baseline rows produced from this raw cases file."""
+    expected = os.path.abspath(os.path.normpath(cases_path))
+    matches = [
+        row for row in rows
+        if os.path.abspath(os.path.normpath(str(row.get("input_source") or ""))) == expected
+    ]
+    return matches if matches else rows
+
+
+def merge_causalarmor(row: dict, baselines: list[dict]) -> dict:
+    merged = dict(row)
+    matches = [item for item in baselines if str(item.get("case_id")) == str(row.get("case_id"))]
+    if len(matches) == 1:
+        merged["causalarmor"] = matches[0]
+    elif len(matches) > 1:
+        input_source = str(row.get("input_source") or "")
+        exact = [item for item in matches if str(item.get("input_source")) == input_source]
+        if len(exact) == 1:
+            merged["causalarmor"] = exact[0]
+        else:
+            raise ValueError(f"Ambiguous CausalArmor rows for case_id={row.get('case_id')!r}; render each InjecAgent source group separately")
+    return merged
+
+
 def merge_judge(row: dict, judges: dict[tuple[str, str], dict]) -> dict:
     merged = dict(row)
     judge = judges.get((str(row.get("case_id")), str(row.get("target_scope", "full_action"))))
@@ -361,6 +386,27 @@ def render_attention(row: dict) -> str:
     """
 
 
+def render_causalarmor(row: dict) -> str:
+    baseline = row.get("causalarmor") or {}
+    if not baseline:
+        return '<section class="panel"><h2>CausalArmor LOO</h2><p class="empty">No CausalArmor record found.</p></section>'
+    if baseline.get("valid_for_stats") is not True:
+        return f'<section class="panel"><h2>CausalArmor LOO</h2><p class="empty">{html.escape(str(baseline.get("error") or "Invalid baseline row"))}</p></section>'
+    return f"""
+    <section class="panel">
+      <div class="section-head"><h2>CausalArmor LOO</h2><span class="chip">Dominance shift: {bool_label(baseline.get('predicted_attack_success'))}</span></div>
+      <div class="attention-score-grid">
+        <div class="attention-score"><span>User attribution</span><strong>{fmt(baseline.get('delta_user'))}</strong></div>
+        <div class="attention-score"><span>Tool-result attribution</span><strong>{fmt(baseline.get('delta_tool_result'))}</strong></div>
+        <div class="attention-score"><span>Tool - User margin</span><strong>{fmt(baseline.get('dominance_margin'))}</strong></div>
+        <div class="attention-score"><span>Tau</span><strong>{fmt(baseline.get('tau'))}</strong></div>
+        <div class="attention-score"><span>LOO seconds</span><strong>{fmt(baseline.get('loo_time_seconds'))}</strong></div>
+      </div>
+      <p class="empty">Detection-only fixed-action comparison; no online sanitization or regeneration.</p>
+    </section>
+    """
+
+
 def render_status(row: dict) -> str:
     return f"""
     <div class="status-grid">
@@ -377,6 +423,7 @@ def render_status(row: dict) -> str:
         <strong class="{status_class(row.get("shapley_attack_dominant"))}">{bool_label(row.get("shapley_attack_dominant"))}</strong>
       </div>
       <div class="status-card"><span>Experiment Joint Method</span><strong class="{status_class(row.get("attack_success_strict"))}">{bool_label(row.get("attack_success_strict"))}</strong></div>
+      <div class="status-card"><span>CausalArmor Dominance Shift</span><strong class="{status_class((row.get("causalarmor") or {}).get("predicted_attack_success"))}">{bool_label((row.get("causalarmor") or {}).get("predicted_attack_success"))}</strong></div>
       <div class="status-card"><span>Judge Behavior</span><strong>{html.escape(str((row.get("judge") or {}).get("behavior_label") or (row.get("judge") or {}).get("status", "unknown")))}</strong></div>
       <div class="status-card"><span>Shapley Seconds</span><strong>{fmt(row.get("shapley_time_seconds"))}</strong></div>
       <div class="status-card"><span>Attention Seconds</span><strong>{fmt(row.get("attention_time_seconds"))}</strong></div>
@@ -439,6 +486,7 @@ def render_record(row: dict) -> str:
               </div>
               <div class="phi-grid">{render_phi_cards(row)}</div>
             </section>
+            {render_causalarmor(row)}
             {render_attention(row)}
           </div>
         </div>
@@ -456,6 +504,7 @@ def summary_counts(rows: list[dict]) -> dict:
         "shapley_attack_dominant": sum(bool(row.get("shapley_attack_dominant")) for row in rows),
         "attention_shift": sum(bool(row.get("attention_shift", row.get("attention_shift_attack"))) for row in rows),
         "attention_attack_dominant": sum(bool(row.get("attention_attack_dominant")) for row in rows),
+        "causalarmor_attack_dominant": sum((row.get("causalarmor") or {}).get("predicted_attack_success") is True for row in rows),
     }
 
 
@@ -466,6 +515,7 @@ def render_summary_cards(counts: dict) -> str:
         ("Shapley Attack Dominant", counts.get("shapley_attack_dominant")),
         ("Attention Shift", counts.get("attention_shift")),
         ("Attention Attack Dominant", counts.get("attention_attack_dominant")),
+        ("CausalArmor Dominance Shift", counts.get("causalarmor_attack_dominant")),
         ("Eval", ", ".join(f"{k}: {v}" for k, v in sorted((counts.get("eval") or {}).items()))),
         ("Action Kind", ", ".join(f"{k}: {v}" for k, v in sorted((counts.get("action_kind") or {}).items()))),
     ]
@@ -605,6 +655,7 @@ def render_html(rows: list[dict], source: dict, title: str, page_size: int = 20)
         <span>Shapley: <code>{html.escape(source.get("shapley", ""))}</code></span>
         <span>Attention: <code>{html.escape(source.get("attention", "") or "none")}</code></span>
         <span>Cases: <code>{html.escape(source.get("cases", "") or "none")}</code></span>
+        <span>CausalArmor: <code>{html.escape(source.get("causalarmor", "") or "none")}</code></span>
       </div>
     </header>
     <section class="overview">
@@ -683,6 +734,7 @@ def prepare_rows(
     case_id: str | None,
     limit: int | None,
     target_scope: str = "full_action",
+    causalarmor_rows: list[dict] | None = None,
 ) -> list[dict]:
     attn = attention_index(attention_rows)
     judges = judge_index(judge_rows)
@@ -700,7 +752,13 @@ def prepare_rows(
             rows = rows[:limit]
     else:
         rows = [select_record(rows_source, case_id, index)]
-    return [enrich_with_case(merge_judge(merge_attention(row, attn), judges), cases) for row in rows]
+    return [
+        enrich_with_case(
+            merge_causalarmor(merge_judge(merge_attention(row, attn), judges), causalarmor_rows or []),
+            cases,
+        )
+        for row in rows
+    ]
 
 
 def main() -> None:
@@ -708,6 +766,7 @@ def main() -> None:
     parser.add_argument("--shapley", required=True, help="results.action_shapley.jsonl from injecagent_action_experiment.py")
     parser.add_argument("--attention", help="Optional results.action_attention.jsonl from injecagent_action_experiment.py")
     parser.add_argument("--judge", help="Optional independent LLM judge JSONL")
+    parser.add_argument("--causalarmor", help="Optional results.causalarmor_loo.jsonl")
     parser.add_argument("--cases", default=DEFAULT_CASES, help="Original qwen InjecAgent JSONL used to show AUTH/FACT/ATTACK text.")
     parser.add_argument("--output", required=True, help="HTML output path.")
     parser.add_argument("--case_id", help="Render a specific case_id.")
@@ -724,8 +783,9 @@ def main() -> None:
     attention_rows = read_jsonl(args.attention)
     judge_rows = read_jsonl(args.judge)
     case_rows = read_jsonl(args.cases)
-    rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit, args.target_scope)
-    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "cases": args.cases}, args.title, args.page_size)
+    causalarmor_rows = filter_causalarmor_rows(read_jsonl(args.causalarmor), args.cases)
+    rows = prepare_rows(shapley_rows, attention_rows, judge_rows, case_rows, args.all, args.index, args.case_id, args.limit, args.target_scope, causalarmor_rows)
+    page = render_html(rows, {"shapley": args.shapley, "attention": args.attention, "judge": args.judge, "causalarmor": args.causalarmor, "cases": args.cases}, args.title, args.page_size)
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
         f.write(page)

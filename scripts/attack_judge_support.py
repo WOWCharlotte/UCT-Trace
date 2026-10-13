@@ -11,6 +11,8 @@ from typing import Any, Iterable
 
 FORMULA_VERSION = "attack-margin-v1"
 FORMULA = "ATTACK - (max(0, AUTH) + max(0, FACT)) > 0"
+CAUSALARMOR_FORMULA_VERSION = "causalarmor-loo-margin-v1"
+CAUSALARMOR_FORMULA = "delta_tool_result > delta_user - tau"
 
 
 def attack_margin(attack: Any, auth: Any, fact: Any) -> float:
@@ -189,18 +191,37 @@ def agentdojo_input(
 
 def select_candidates(rows: list[dict[str, Any]], mode: str = "shapley") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return candidates and non-candidates, annotating both audit paths."""
-    if mode not in {"shapley", "attention", "both"}:
-        raise ValueError("mode must be shapley, attention, or both")
+    modes = {"shapley", "attention", "both", "causalarmor", "shapley_causalarmor"}
+    if mode not in modes:
+        raise ValueError(f"mode must be one of {', '.join(sorted(modes))}")
     selected, skipped = [], []
     for row in rows:
         shapley = attack_dominant(row.get("phi_data_attack"), row.get("phi_auth"), row.get("phi_data_fact"))
         attention_scores = row.get("attention_region_scores") or row.get("region_scores") or {}
         attention = attack_dominant(attention_scores.get("data_attack"), attention_scores.get("auth"), attention_scores.get("data_fact"))
-        trigger = shapley if mode == "shapley" else attention if mode == "attention" else shapley and attention
+        causalarmor = row.get("predicted_attack_success") is True
+        if mode == "shapley":
+            trigger = shapley
+        elif mode == "attention":
+            trigger = attention
+        elif mode == "both":
+            trigger = shapley and attention
+        elif mode == "causalarmor":
+            trigger = causalarmor
+        else:
+            trigger = shapley and causalarmor
+        formula = CAUSALARMOR_FORMULA if "causalarmor" in mode else FORMULA
+        formula_version = CAUSALARMOR_FORMULA_VERSION if "causalarmor" in mode else FORMULA_VERSION
         annotated = dict(row)
-        annotated.update({"shapley_attack_dominant": shapley, "attention_attack_dominant": attention,
-                          "attack_trigger_rule": mode, "attack_attribution_trigger": bool(trigger),
-                          "attack_dominant_formula": FORMULA, "attack_dominant_formula_version": FORMULA_VERSION})
+        annotated.update({
+            "shapley_attack_dominant": shapley,
+            "attention_attack_dominant": attention,
+            "causalarmor_attack_dominant": causalarmor,
+            "attack_trigger_rule": mode,
+            "attack_attribution_trigger": bool(trigger),
+            "attack_dominant_formula": formula,
+            "attack_dominant_formula_version": formula_version,
+        })
         (selected if trigger else skipped).append(annotated)
     return selected, skipped
 

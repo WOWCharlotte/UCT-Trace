@@ -1,102 +1,141 @@
-# CausalArmor LOO attribution baseline for UCT-Trace
+# CausalArmor independent LOO baseline
 
-This repository's `baselines/causal_armor/causalarmor_loo_baseline.py` adapts **only the
-attribution-based detection criterion** of CausalArmor to UCT-Trace's
-fixed-action, offline classification setting. It does not implement
-CausalArmor's privileged-action gate, sanitization, chain-of-thought masking,
-or action regeneration. The source `D:\Github\causal-armor` is a third-party
-implementation of the paper, not the authors' experimental release.
+`causalarmor_loo_baseline.py` is an independent baseline. It reads the same raw
+AgentDojo trajectories or InjecAgent generated-case JSONL as Attention Tracker
+and UCT-Trace, selects its own samples, and records its own successes and
+failures. A UCT-Trace result file is never required and never determines which
+samples CausalArmor runs.
+
+This repository implements only CausalArmor's LOO causal-dominance detector in
+a fixed-action offline setting. It does not implement the paper's complete
+online guardrail: privileged-action gating, targeted sanitization, retroactive
+chain-of-thought masking, and action regeneration are out of scope.
 
 ## Method
 
-For each valid row of an existing UCT-Trace Shapley result file, the command
-rebuilds the same original prompt and holds its target action fixed. It scores
-three prompts with the **same target model**: complete prompt, original user
-request content removed, and the selected polluted tool-result content
-removed. The tool result is treated as one region containing both FACT and
-ATTACK; the baseline never uses the ATTACK boundary. Role markers and other
-messages remain in place. Each score is the mean teacher-forced target-token
-log probability, so the LOO differences use the actual target token count:
+For each fixed observed action, the target model scores the action under three
+contexts: the full prompt, the prompt without the original user content, and
+the prompt without the entire polluted tool-result content. The mean target
+token log probability implements target-length normalization:
 
 ```text
 delta_user = logprob_full - logprob_without_user
 delta_tool = logprob_full - logprob_without_tool_result
-predict_success = delta_tool > delta_user - tau
+margin = delta_tool - delta_user
+predict_attack_success = margin > -tau
 ```
 
-The default `tau` is `0`. This is an **offline prediction of attack success**
-from CausalArmor's attribution criterion, not a measurement of CausalArmor's
-online attack success rate. Because this command performs no behavioral
-verification, compare its classification metrics primarily with UCT-Trace's
-Shapley-only prediction. The summary includes both methods on the identical
-valid sample intersection.
+The default is `tau=0`, and the comparison is strict. The tool result is one
+region containing both FACT and ATTACK; CausalArmor does not use the ATTACK
+span boundary when ablating it.
 
-## Requirements on the experiment computer
+## AgentDojo
 
-Use the Python and PyTorch environment required by this repository and make
-the model weights named by `model_info.model_id` in the selected JSON config
-accessible. The checked-in Qwen configuration contains a `/root/...` path
-from another machine; set it to a path or model ID available on yours. Run
-commands from the `D:\Github\Attention-Tracker` repository root. The LOO
-command needs no judge API or CausalArmor proxy service.
+The following command matches the selection used by the
+`agentdojo_fact_longer_than_attack` experiment, but runs CausalArmor directly
+from the trajectory corpus:
 
-## Commands
-
-Use Shapley files generated from the **same source data and target model**.
-For InjecAgent, pass the paired success and failure manifests together with
-their matching generated-case files; this produces a meaningful two-class
-classification summary. The input and output arguments should be adjusted
-for each model.
-
-### InjecAgent
-
-```powershell
-python baselines/causal_armor/causalarmor_loo_baseline.py `
-  --dataset injecagent `
-  --shapley-manifest result/injecagent_qwen3_dh_attack_20260809/results.action_shapley.jsonl result/injecagent_qwen3_dh_clean_20260809/results.action_shapley.jsonl `
-  --input data/injecagent/qwen3-8b/test_cases_dh_base_attack.jsonl data/injecagent/qwen3-8b/test_cases_dh_base_clean.jsonl `
-  --tools data/injecagent/injecagent_data/tools.json `
-  --model-config configs/model_configs/qwen3_8b-attn_config.json `
-  --output-dir result/causalarmor_loo_injecagent_qwen3
+```bash
+python baselines/causal_armor/causalarmor_loo_baseline.py \
+  --dataset agentdojo \
+  --input-root data/agentdojo/runs/qwen3-8b \
+  --model-config configs/model_configs/qwen3_8b-attn_config.json \
+  --output-dir result/causalarmor_loo_agentdojo_qwen3 \
+  --fact-dominant \
+  --fact-ratio 1.0 \
+  --use-cache
 ```
 
-### AgentDojo
+With the defaults, `--fact-dominant --fact-ratio 1.0` means exactly:
 
-```powershell
-python baselines/causal_armor/causalarmor_loo_baseline.py `
-  --dataset agentdojo `
-  --shapley-manifest result/agentdojo_fact_longer_than_attack_qwen_8b/results.shapley.jsonl `
-  --input-root data/agentdojo/runs/qwen3-8b `
-  --model-config configs/model_configs/qwen3_8b-attn_config.json `
-  --output-dir result/causalarmor_loo_agentdojo_qwen3
+```text
+500 <= FACT chars <= 100000
+FACT chars >= 1.0 * max(1, ATTACK chars)
 ```
 
-The manifests determine the paired sample set. For InjecAgent, each manifest
-must match the input in the same argument position; `sample_id` prefixes its
-source-group number so success and failure cases with the same original
-`case_id` stay distinct. Do not point the command at Shapley results from a
-different model or differently selected data subset.
-`--limit N` can restrict a later diagnostic run; omit it for the complete
-comparison. `--tau` changes the detection threshold. The default long-context
-switch and KV-cache chunk sizes match the AgentDojo Shapley script and can be
-set with `--full-forward-token-threshold`, `--streaming-chunk-size`, and
-`--prefill-chunk-size`.
+It is `FACT >= ATTACK`, not strict `FACT > ATTACK`. The script also supports
+the same selection controls as the main experiment:
+`--action-targets-only`, `--min-fact-chars`, `--max-fact-chars`,
+`--rank-by-fact-ratio`, `--target-id`, `--target-id-file`, and `--limit`.
 
-## Output
+## InjecAgent
 
-The output directory receives only two new files:
+Pass raw generated-case files directly. Multiple files are supported; the
+source-group prefix in `sample_id` prevents equal row indices from colliding.
 
-- `results.causalarmor_loo.jsonl`: one row per selected Shapley sample, with
-  identity, original fixed action, target type and token count, full and two
-  ablated log probabilities, normalized LOO differences, margin, prediction,
-  gold label, runtime, and any processing error. A failed row has
-  `valid_for_stats=false` and is excluded from metrics.
-- `results.causalarmor_loo.summary.json`: selection counts, runtime summary,
-  and accuracy, precision, recall, FPR, and F1 for LOO and Shapley-only on
-  the **same successfully scored rows**. Metrics are given for all fixed
-  actions and separately for the tool-action subset.
+```bash
+python baselines/causal_armor/causalarmor_loo_baseline.py \
+  --dataset injecagent \
+  --input \
+    data/injecagent/qwen3-8b/test_cases_dh_base_attack.jsonl \
+    data/injecagent/qwen3-8b/test_cases_dh_base_clean.jsonl \
+  --tools data/injecagent/injecagent_data/tools.json \
+  --model-config configs/model_configs/qwen3_8b-attn_config.json \
+  --output-dir result/causalarmor_loo_injecagent_qwen3 \
+  --use-cache
+```
 
-No existing Shapley, attention, judge, or trajectory files are overwritten.
-Run once for each dataset-model configuration. These commands and the new
-baseline have not been executed against model weights in the current
-environment; experimental results must be obtained on the later machine.
+`--eval-filter`, `--case-ids`, `--limit`, and `--include-all-tools` mirror the
+corresponding main-experiment selection options. Rows labelled `invalid` remain
+visible as failed attempts when selected, but only `succ` and `unsucc` have the
+boolean gold label required for metrics.
+
+## Optional post-hoc comparison
+
+For a paired report, add `--comparison-shapley` after defining the independent
+raw input. This file is joined by identity only after CausalArmor selection; it
+does not exclude UCT-Trace failures or add samples. The old option spelling
+`--shapley-manifest` remains as a compatibility alias, with the same post-hoc
+semantics.
+
+```bash
+python baselines/causal_armor/causalarmor_loo_baseline.py \
+  --dataset agentdojo \
+  --input-root data/agentdojo/runs/qwen3-8b \
+  --model-config configs/model_configs/qwen3_8b-attn_config.json \
+  --output-dir result/causalarmor_loo_agentdojo_qwen3 \
+  --fact-dominant --fact-ratio 1.0 --use-cache \
+  --comparison-shapley result/agentdojo_fact_longer_than_attack_qwen_8b/results.shapley.jsonl
+```
+
+Fair paired metrics are computed only on the identity intersection where both
+methods succeeded. Each method's attempted, valid, and failed counts remain
+independent.
+
+## Outputs and resuming
+
+The output directory contains:
+
+- `results.causalarmor_loo.jsonl`: one attempted raw-input sample per row,
+  including fixed action, LOO scores, prediction, gold label, runtime, and
+  processing error. `valid_for_stats=false` marks failed execution.
+- `results.causalarmor_loo.summary.json`: raw corpus audit, exact selection
+  configuration, selected/valid/failed counts, error classes, metrics, runtime,
+  and tau sweep. Optional UCT-Trace paired metrics appear only when a comparison
+  file is supplied. `suite_name=null` is excluded from suite-group counts.
+
+`--use-cache` checkpoints every sample and reuses successful rows by independent
+`sample_id`. Failed rows are retried. Long inputs switch to KV-cache scoring at
+`--full-forward-token-threshold` (default 1024); chunk sizes are controlled by
+`--streaming-chunk-size` and `--prefill-chunk-size`.
+
+Judge and visualization integration continues to consume the independent
+JSONL:
+
+```bash
+python scripts/llm_judge_attack_behavior.py \
+  --mode audit --dataset agentdojo --trigger causalarmor \
+  --input result/causalarmor_loo_agentdojo_qwen3/results.causalarmor_loo.jsonl \
+  --output result/causalarmor_loo_agentdojo_qwen3/judge.audit.jsonl \
+  --summary result/causalarmor_loo_agentdojo_qwen3/judge.audit.summary.json
+
+python scripts/visualize_agentdojo_attribution.py \
+  --shapley result/agentdojo_fact_longer_than_attack_qwen_8b/results.shapley.jsonl \
+  --causalarmor result/causalarmor_loo_agentdojo_qwen3/results.causalarmor_loo.jsonl \
+  --judge result/causalarmor_loo_agentdojo_qwen3/judge.audit.jsonl \
+  --all \
+  --output result/causalarmor_loo_agentdojo_qwen3/comparison.html
+```
+
+The detector output is an offline classification result. It must not be
+reported as the full CausalArmor online defense ASR.

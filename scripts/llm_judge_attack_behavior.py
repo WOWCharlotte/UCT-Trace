@@ -289,7 +289,7 @@ def build_audit_rows(rows: list[dict[str, Any]], dataset: str, mode: str) -> tup
         output.append(annotated)
     summary = {
         "schema_version": 1,
-        "formula_version": FORMULA_VERSION,
+        "formula_version": output[0].get("attack_dominant_formula_version", FORMULA_VERSION) if output else FORMULA_VERSION,
         "dataset": dataset,
         "trigger_rule": mode,
         **audit_counts(len(rows), len(candidates)),
@@ -305,7 +305,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Independent candidate/audit JSONL")
     parser.add_argument("--summary", required=True, help="Audit summary JSON")
     parser.add_argument("--dataset", choices=("injecagent", "agentdojo"), required=True)
-    parser.add_argument("--trigger", choices=("shapley", "attention", "both"), default="shapley")
+    parser.add_argument("--trigger", choices=("shapley", "attention", "both", "causalarmor", "shapley_causalarmor"), default="shapley")
     parser.add_argument("--model")
     parser.add_argument("--api-key")
     parser.add_argument("--base-url")

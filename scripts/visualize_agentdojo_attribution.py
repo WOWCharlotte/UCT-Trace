@@ -43,11 +43,12 @@ def row_index(rows: list[dict]) -> dict[str, dict]:
     return result
 
 
-def merge_rows(shapley_rows: list[dict], attention_rows: list[dict], judge_rows: list[dict] | None = None) -> list[dict]:
+def merge_rows(shapley_rows: list[dict], attention_rows: list[dict], judge_rows: list[dict] | None = None, causalarmor_rows: list[dict] | None = None) -> list[dict]:
     shapley = row_index(shapley_rows)
     attention = row_index(attention_rows)
     judges = row_index(judge_rows or [])
-    target_ids = list(shapley) if shapley else list(attention)
+    causalarmor = row_index(causalarmor_rows or [])
+    target_ids = list(shapley) if shapley else list(attention) if attention else list(causalarmor)
     merged = []
     for target_id in target_ids:
         row = dict(shapley.get(target_id) or attention[target_id])
@@ -55,6 +56,8 @@ def merge_rows(shapley_rows: list[dict], attention_rows: list[dict], judge_rows:
             row["attention"] = attention[target_id]
         if target_id in shapley:
             row["shapley"] = shapley[target_id]
+        if target_id in causalarmor:
+            row["causalarmor"] = causalarmor[target_id]
         judge = judges.get(target_id)
         if judge is None:
             row["judge"] = {"status": "judge_unavailable"}
@@ -156,6 +159,15 @@ def render_attention(row: dict) -> str:
     return f"""<section class="panel"><div class="section-head"><h2>Attention</h2><span class="chip">Shift: {yes_no(attention.get('attention_shift'))}</span></div><div class="status-grid"><div><span>Auth Focus</span><strong>{fmt(attention.get('auth_focus_score'))}</strong></div><div><span>Threshold</span><strong>{fmt(attention.get('threshold'))}</strong></div><div><span>Attack Dominant</span><strong>{yes_no(attention.get('attention_attack_dominant'))}</strong></div></div><h3>Player-Normalized Attention</h3>{''.join(player_bars)}<details><summary>Prompt-Normalized Attention Including SPECIAL</summary><div class="details-body">{''.join(prompt_bars)}</div></details><div class="token-toolbar"><strong>Context tokens</strong>{toolbar}</div><div class="tokens">{''.join(token_chips)}</div></section>"""
 
 
+def render_causalarmor(row: dict) -> str:
+    baseline = row.get("causalarmor") or {}
+    if not baseline:
+        return '<section class="panel"><h2>CausalArmor LOO</h2><p class="empty">No CausalArmor record.</p></section>'
+    if baseline.get("valid_for_stats") is not True:
+        return f'<section class="panel"><h2>CausalArmor LOO</h2><p class="empty">{html.escape(str(baseline.get("error") or "Invalid baseline row"))}</p></section>'
+    return f"""<section class="panel"><div class="section-head"><h2>CausalArmor LOO</h2><span class="chip">Dominance shift: {yes_no(baseline.get('predicted_attack_success'))}</span></div><div class="status-grid"><div><span>User attribution</span><strong>{fmt(baseline.get('delta_user'))}</strong></div><div><span>Tool-result attribution</span><strong>{fmt(baseline.get('delta_tool_result'))}</strong></div><div><span>Tool - User margin</span><strong>{fmt(baseline.get('dominance_margin'))}</strong></div><div><span>Tau</span><strong>{fmt(baseline.get('tau'))}</strong></div><div><span>LOO seconds</span><strong>{fmt(baseline.get('loo_time_seconds'))}</strong></div></div><p class="subtle">Detection-only fixed-action comparison; this is not online sanitization or action regeneration.</p></section>"""
+
+
 def render_players(row: dict) -> str:
     source = row.get("shapley") or row.get("attention") or row
     texts = source.get("player_text") or {}
@@ -180,13 +192,14 @@ def render_record(row: dict) -> str:
         ("Judge behavior", judge.get("behavior_label") or judge.get("status")),
         ("Shapley seconds", source.get("shapley_time_seconds")),
         ("Attention seconds", source.get("attention_time_seconds")),
+        ("CausalArmor dominance shift", (row.get("causalarmor") or {}).get("predicted_attack_success")),
         ("Target kind", source.get("target_kind")), ("Target scope", source.get("target_scope")),
         ("Polluted tool index", source.get("polluted_tool_message_index")),
         ("Assistant index", source.get("target_assistant_message_index")),
     ]
     rows = "".join(f"<tr><th>{html.escape(label)}</th><td>{html.escape(str(value))}</td></tr>" for label, value in metadata)
     target = html.escape(str(source.get("target_text") or source.get("error") or ""))
-    return f"""<details class="record" id="target-{target_id}" data-suite="{html.escape(str(source.get('suite_name')))}" data-security="{html.escape(str(source.get('security')).lower())}" data-kind="{html.escape(str(source.get('target_kind')))}"{open_attr}><summary><span><strong>{html.escape(str(source.get('case_id')))}</strong><small>{target_id}</small></span><span>{html.escape(str(source.get('target_kind')))} · ground-truth success {yes_no(attack_success)} · joint method {yes_no(row.get('attack_success_strict'))}</span></summary><div class="record-body"><div class="layout"><div class="stack"><section class="panel"><h2>Selection</h2><table>{rows}</table></section>{render_players(row)}<section class="panel"><h2>Next Assistant Target</h2><pre>{target}</pre></section></div><div class="stack">{render_shapley(row)}{render_attention(row)}</div></div></div></details>"""
+    return f"""<details class="record" id="target-{target_id}" data-suite="{html.escape(str(source.get('suite_name')))}" data-security="{html.escape(str(source.get('security')).lower())}" data-kind="{html.escape(str(source.get('target_kind')))}"{open_attr}><summary><span><strong>{html.escape(str(source.get('case_id')))}</strong><small>{target_id}</small></span><span>{html.escape(str(source.get('target_kind')))} · ground-truth success {yes_no(attack_success)} · joint method {yes_no(row.get('attack_success_strict'))}</span></summary><div class="record-body"><div class="layout"><div class="stack"><section class="panel"><h2>Selection</h2><table>{rows}</table></section>{render_players(row)}<section class="panel"><h2>Next Assistant Target</h2><pre>{target}</pre></section></div><div class="stack">{render_shapley(row)}{render_causalarmor(row)}{render_attention(row)}</div></div></div></details>"""
 
 
 def summary(rows: list[dict]) -> dict:
@@ -200,6 +213,7 @@ def summary(rows: list[dict]) -> dict:
         "judge_behavior": dict(Counter(str((row.get("judge") or {}).get("behavior_label") or (row.get("judge") or {}).get("status")) for row in rows)),
         "attention_shift": sum((row.get("attention") or {}).get("attention_shift") is True for row in rows),
         "shapley_attack_dominant": sum((row.get("shapley") or {}).get("shapley_attack_dominant") is True for row in rows),
+        "causalarmor_attack_dominant": sum((row.get("causalarmor") or {}).get("predicted_attack_success") is True for row in rows),
     }
 
 
@@ -214,6 +228,7 @@ def render_html(rows: list[dict], source: dict, title: str, page_size: int = 20)
         ("Records", counts["records"]), ("Ground-truth Attack Success", counts["attack_success"]),
         ("Experiment Joint Method", counts["attack_success_strict"]),
         ("Attention Shift", counts["attention_shift"]), ("Shapley Attack Dominant", counts["shapley_attack_dominant"]),
+        ("CausalArmor Dominance Shift", counts["causalarmor_attack_dominant"]),
     ])
     pages = [rows[index:index + page_size] for index in range(0, len(rows), page_size)] or [[]]
     page_templates = "".join(
@@ -222,7 +237,7 @@ def render_html(rows: list[dict], source: dict, title: str, page_size: int = 20)
     )
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(title)}</title><style>
 :root{{--bg:#f6f7f9;--panel:#fff;--line:#d8dee8;--text:#172033;--muted:#667085;--auth:#1f5ea8;--fact:#167457;--attack:#b42318;--special:#6b7280;--attn:#7c3aed}}*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,sans-serif}}main{{max-width:1440px;margin:auto;padding:24px}}h1{{font-size:30px;margin:0 0 6px;letter-spacing:0}}h2{{font-size:18px;margin:0 0 12px}}h3{{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:0;margin:18px 0 10px}}.subtle,small{{display:block;color:var(--muted);overflow-wrap:anywhere}}.summary-grid,.metric-grid,.status-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}}.summary-card,.status-grid>div,.metric-card{{border:1px solid var(--line);border-radius:8px;padding:12px;background:#fbfcfe}}.summary-card span,.status-grid span{{display:block;color:var(--muted);font-size:12px}}.summary-card strong,.status-grid strong{{font-size:19px}}.toolbar{{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:18px 0}}label{{color:var(--muted);font-size:12px}}select{{display:block;min-width:150px;margin-top:4px;padding:7px;border:1px solid var(--line);border-radius:6px;background:white}}.record{{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin:14px 0;overflow:hidden}}.record>summary{{cursor:pointer;display:flex;justify-content:space-between;gap:16px;padding:15px;background:#fbfcfe}}.record-body{{padding:16px}}.layout{{display:grid;grid-template-columns:minmax(320px,.42fr) minmax(0,.58fr);gap:16px}}.stack,.player-grid{{display:grid;gap:14px}}.panel{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px}}.section-head,.metric-head,.score-row>div:first-child{{display:flex;justify-content:space-between;align-items:center;gap:8px}}table{{width:100%;border-collapse:collapse}}th,td{{border-bottom:1px solid #edf1f6;padding:7px;text-align:left;vertical-align:top}}th{{color:var(--muted);width:42%}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.55 ui-monospace,monospace;margin:0;max-height:300px;overflow:auto}}.player-block{{border-left:5px solid;padding:10px;background:#fbfcfe}}.auth{{color:var(--auth);border-color:var(--auth)}}.fact{{color:var(--fact);border-color:var(--fact)}}.attack{{color:var(--attack);border-color:var(--attack)}}.special{{color:var(--special);border-color:var(--special)}}.pill,.chip{{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700}}.bar{{height:9px;background:#edf1f6;border-radius:99px;overflow:hidden;margin-top:7px}}.bar span{{display:block;height:100%}}.positive{{background:var(--fact)}}.negative{{background:var(--attack)}}.attention-fill{{background:var(--attn)}}.score-row{{margin:10px 0}}details>summary{{cursor:pointer}}.details-body{{margin-top:10px}}.token-toolbar{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 8px}}.tokens{{border:1px solid var(--line);padding:9px;max-height:360px;overflow:auto;font:12px/1.7 ui-monospace,monospace}}.token{{display:inline-block;padding:1px 3px;margin:1px;border-radius:3px}}.token-auth{{background:#1f5ea820;color:var(--auth)}}.token-data_fact{{background:#16745720;color:var(--fact)}}.token-data_attack{{background:#b4231824;color:var(--attack)}}.token-special{{background:#6b728020;color:var(--special)}}.hidden{{display:none!important}}@media(max-width:900px){{.layout{{grid-template-columns:1fr}}main{{padding:12px}}}}
-</style></head><body><main><header><h1>{html.escape(title)}</h1><p class="subtle">Shapley: {html.escape(source.get('shapley') or 'none')} · Attention: {html.escape(source.get('attention') or 'none')}</p></header><section class="summary-grid">{cards}</section><div class="toolbar"><label>Suite<select id="suite-filter"><option value="">All</option>{options(suites)}</select></label><label>Security<select id="security-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label><label>Target kind<select id="kind-filter"><option value="">All</option>{options(kinds)}</select></label></div><div class="pagination"><button id="previous-page" type="button">Previous</button><span id="page-label"></span><button id="next-page" type="button">Next</button></div><section id="records"></section><div class="page-templates">{page_templates}</div></main><script>
+</style></head><body><main><header><h1>{html.escape(title)}</h1><p class="subtle">Shapley: {html.escape(source.get('shapley') or 'none')} · Attention: {html.escape(source.get('attention') or 'none')} · CausalArmor: {html.escape(source.get('causalarmor') or 'none')}</p></header><section class="summary-grid">{cards}</section><div class="toolbar"><label>Suite<select id="suite-filter"><option value="">All</option>{options(suites)}</select></label><label>Security<select id="security-filter"><option value="">All</option><option value="true">True</option><option value="false">False</option></select></label><label>Target kind<select id="kind-filter"><option value="">All</option>{options(kinds)}</select></label></div><div class="pagination"><button id="previous-page" type="button">Previous</button><span id="page-label"></span><button id="next-page" type="button">Next</button></div><section id="records"></section><div class="page-templates">{page_templates}</div></main><script>
 let currentPage = 0;
 const pageCount = {len(pages)};
 function bindTokens(){{document.querySelectorAll('#records [data-region-toggle]').forEach(box=>box.addEventListener('change',()=>{{const panel=box.closest('.panel'),region=box.dataset.regionToggle;panel.querySelectorAll(`.token[data-region="${{region}}"]`).forEach(token=>token.classList.toggle('hidden',!box.checked))}}));}}
@@ -246,6 +261,7 @@ def main() -> None:
     parser.add_argument("--shapley", help="results.shapley.jsonl")
     parser.add_argument("--attention", help="results.attention.jsonl")
     parser.add_argument("--judge", help="Optional independent LLM judge JSONL")
+    parser.add_argument("--causalarmor", help="Optional results.causalarmor_loo.jsonl")
     parser.add_argument("--output", required=True)
     parser.add_argument("--target-id")
     parser.add_argument("--index", type=int, default=0)
@@ -255,17 +271,17 @@ def main() -> None:
     parser.add_argument("--title", default="AgentDojo Next-Assistant Attribution")
     parser.add_argument("--page-size", type=int, default=20, help="Number of records rendered in the active page.")
     args = parser.parse_args()
-    if not args.shapley and not args.attention:
-        parser.error("at least one of --shapley or --attention is required")
-    merged = merge_rows(read_jsonl(args.shapley), read_jsonl(args.attention), read_jsonl(args.judge))
+    if not args.shapley and not args.attention and not args.causalarmor:
+        parser.error("at least one attribution input is required")
+    merged = merge_rows(read_jsonl(args.shapley), read_jsonl(args.attention), read_jsonl(args.judge), read_jsonl(args.causalarmor))
     if args.valid_only:
         merged = [row for row in merged if all(
             row.get(method, {}).get("valid_for_stats")
-            for method in ("shapley", "attention")
+            for method in ("shapley", "attention", "causalarmor")
             if method in row
         )]
     selected = select_rows(merged, args.all, args.index, args.target_id, args.limit)
-    write_html(args.output, render_html(selected, {"shapley": args.shapley, "attention": args.attention}, args.title, args.page_size))
+    write_html(args.output, render_html(selected, {"shapley": args.shapley, "attention": args.attention, "causalarmor": args.causalarmor}, args.title, args.page_size))
 
 
 if __name__ == "__main__":
