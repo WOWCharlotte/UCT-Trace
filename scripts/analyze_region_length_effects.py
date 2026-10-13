@@ -31,7 +31,8 @@ METRIC_COLORS = {
     "单Token Attention": "#72A6C2",
     "Shapley贡献": "#D28E45",
 }
-REGION_COLORS = {"AUTH": "#5B8FB9", "FACT": "#7E8F7C", "ATTACK": "#C9675A"}
+REGION_COLORS = {"AUTH": "#7DD2F6", "FACT": "#80C5A2", "ATTACK": "#F27873"}
+REGION_MARKERS = {"AUTH": "o", "FACT": "^", "ATTACK": "s"}
 
 SOURCES = [
     {
@@ -312,11 +313,12 @@ def plot_correlations(correlations: list[dict]) -> None:
         f"{dataset} · {model}\n{LABEL_DISPLAY_NAMES[label]}"
         for dataset, model, label in row_keys
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(10.5, 5.8), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(12.0, 6.6), sharey=True)
     lookup = {
         (row["dataset"], row["model"], row["label"], row["region"], row["metric"]): row
         for row in correlations
     }
+    cmap = "RdBu_r"
     image = None
     for panel, (ax, metric) in enumerate(zip(axes, METRICS)):
         matrix = np.full((len(row_keys), len(REGIONS)), np.nan)
@@ -326,7 +328,7 @@ def plot_correlations(correlations: list[dict]) -> None:
                 if record:
                     matrix[i, j] = record["spearman_rho"]
         masked = np.ma.masked_invalid(matrix)
-        image = ax.imshow(masked, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+        image = ax.imshow(masked, cmap=cmap, vmin=-1, vmax=1, aspect="auto")
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
                 if math.isfinite(matrix[i, j]):
@@ -343,7 +345,7 @@ def plot_correlations(correlations: list[dict]) -> None:
         for spine in ax.spines.values():
             spine.set_visible(False)
     axes[0].set_yticks(range(len(row_labels)), row_labels)
-    cbar = fig.colorbar(image, ax=axes, fraction=0.018, pad=0.025)
+    cbar = fig.colorbar(image, ax=axes, fraction=0.018, pad=0.04)
     cbar.set_label("区域长度与指标的 Spearman ρ")
     fig.suptitle("区域长度与 Attention/Shapley 的分层相关性", fontsize=9, y=0.985)
     cbar.set_label("Spearman's ρ between Region Length and Metric")
@@ -352,7 +354,7 @@ def plot_correlations(correlations: list[dict]) -> None:
         fontsize=9,
         y=0.985,
     )
-    fig.subplots_adjust(left=0.23, right=0.91, top=0.91, bottom=0.08, wspace=0.14)
+    fig.subplots_adjust(left=0.23, right=0.88, top=0.91, bottom=0.08, wspace=0.14)
     save_figure(fig, "fig6_region_length_correlations")
 
 
@@ -378,112 +380,83 @@ def length_reference_rows(bins: list[dict]) -> list[dict]:
     return output
 
 
+def _plot_binned_region_series(ax, bins: list[dict], metric: str, dataset: str | None = None) -> None:
+    for region in REGIONS:
+        means = []
+        errors = []
+        x_positions = []
+        for bin_id in range(4):
+            label = f"Q{bin_id + 1}"
+            selected = [
+                row for row in bins
+                if row["metric"] == metric
+                and row["region"] == region
+                and row["length_bin"] == label
+                and (dataset is None or row["dataset"] == dataset)
+            ]
+            if not selected:
+                continue
+            x_positions.append(bin_id)
+            values = np.asarray([float(row["standardized_mean"]) for row in selected], dtype=float)
+            means.append(float(np.mean(values)))
+            errors.append(float(np.std(values) / math.sqrt(len(values))) if len(values) > 1 else 0.0)
+        ax.errorbar(
+            x_positions,
+            means,
+            yerr=errors,
+            marker=REGION_MARKERS[region],
+            markersize=4.5,
+            linewidth=1.5,
+            capsize=2.5,
+            color=REGION_COLORS[region],
+            label=region,
+        )
+
+
 def plot_binned_trends(bins: list[dict]) -> None:
-    fig, axes = plt.subplots(1, 3, figsize=(9.2, 2.8), sharey=True)
-    for ax in axes[1:]:
-        ax.sharey(axes[0])
-    x = np.arange(4)
+    fig, axes = plt.subplots(1, 3, figsize=(10.8, 3.2), sharey=True)
     for panel, (ax, metric) in enumerate(zip(axes, METRICS)):
-        for region in REGIONS:
-            means = []
-            errors = []
-            for bin_id in range(4):
-                label = f"Q{bin_id + 1}"
-                values = [
-                    row["standardized_mean"]
-                    for row in bins
-                    if row["metric"] == metric and row["region"] == region and row["length_bin"] == label
-                ]
-                means.append(float(np.mean(values)) if values else np.nan)
-                errors.append(float(np.std(values) / math.sqrt(len(values))) if len(values) > 1 else 0.0)
-            ax.errorbar(
-                x,
-                means,
-                yerr=errors,
-                marker="o",
-                markersize=4,
-                linewidth=1.5,
-                capsize=2.5,
-                color=REGION_COLORS[region],
-                label=region,
-            )
+        _plot_binned_region_series(ax, bins, metric)
         ax.axhline(0, color="#777777", linewidth=0.7)
-        ax.set_xticks(x, ["Q1\n最短", "Q2", "Q3", "Q4\n最长"])
-        ax.set_title(metric)
-        ax.set_xlabel("分层内区域长度四分位")
+        ax.set_title(METRIC_DISPLAY_NAMES[metric])
+        ax.set_xticks(range(4), ["Q1", "Q2", "Q3", "Q4"])
+        ax.set_xlabel("Token length quartile")
         ax.grid(axis="y", color="#E3E3E3", linewidth=0.5)
         ax.text(-0.12, 1.04, "abc"[panel], transform=ax.transAxes, fontsize=8, fontweight="bold")
-    axes[0].set_ylabel("分层内标准化指标均值（z-score）")
+        ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(integer=True, nbins=5))
+    axes[0].set_ylabel("Mean standardized metric (z-score)")
     handles, labels = axes[0].get_legend_handles_labels()
-    axes[2].legend(handles, labels, loc="upper right", ncol=1)
-
-    fig.suptitle("区域长度分箱下的 Attention 与 Shapley 变化", fontsize=9, y=0.985)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.84, bottom=0.24, wspace=0.18)
+    axes[2].legend(handles, labels, loc="upper right", title="Region")
+    fig.suptitle("Attention and Shapley trends by token length", fontsize=9, y=0.985)
+    fig.subplots_adjust(left=0.09, right=0.99, top=0.84, bottom=0.23, wspace=0.18)
     save_figure(fig, "fig7_region_length_bins")
 
 
 def plot_binned_trends_by_dataset(bins: list[dict]) -> None:
-    """Plot the Figure 7 trends separately for each dataset."""
+    """Plot token-length trends separately for each dataset."""
     datasets = ["InjecAgent", "AgentDojo"]
-    fig, axes = plt.subplots(2, 3, figsize=(9.2, 5.2), sharex=True, sharey=True)
-    x = np.arange(4)
+    fig, axes = plt.subplots(2, 3, figsize=(10.8, 5.8), sharex=False, sharey=True)
     panel_labels = "abcdef"
-
     for row_index, dataset in enumerate(datasets):
         for column_index, metric in enumerate(METRICS):
             ax = axes[row_index, column_index]
-            for region in REGIONS:
-                means = []
-                errors = []
-                for bin_id in range(4):
-                    label = f"Q{bin_id + 1}"
-                    values = [
-                        row["standardized_mean"]
-                        for row in bins
-                        if row["dataset"] == dataset
-                        and row["metric"] == metric
-                        and row["region"] == region
-                        and row["length_bin"] == label
-                    ]
-                    means.append(float(np.mean(values)) if values else np.nan)
-                    errors.append(
-                        float(np.std(values) / math.sqrt(len(values)))
-                        if len(values) > 1
-                        else 0.0
-                    )
-                ax.errorbar(
-                    x,
-                    means,
-                    yerr=errors,
-                    marker="o",
-                    markersize=3.8,
-                    linewidth=1.4,
-                    capsize=2.3,
-                    color=REGION_COLORS[region],
-                    label=region,
-                )
+            _plot_binned_region_series(ax, bins, metric, dataset)
             ax.axhline(0, color="#777777", linewidth=0.7)
-            ax.set_xticks(x, ["Q1\n最短", "Q2", "Q3", "Q4\n最长"])
+            ax.set_xticks(range(4), ["Q1", "Q2", "Q3", "Q4"])
+            ax.set_xlabel("Token length quartile")
             ax.grid(axis="y", color="#E3E3E3", linewidth=0.5)
             ax.text(
-                -0.12,
-                1.04,
-                panel_labels[row_index * 3 + column_index],
-                transform=ax.transAxes,
-                fontsize=8,
-                fontweight="bold",
+                -0.12, 1.04, panel_labels[row_index * 3 + column_index],
+                transform=ax.transAxes, fontsize=8, fontweight="bold",
             )
             if row_index == 0:
-                ax.set_title(metric)
+                ax.set_title(METRIC_DISPLAY_NAMES[metric])
             if column_index == 0:
-                ax.set_ylabel(f"{dataset}\n标准化指标均值（z-score）")
-            if row_index == 1:
-                ax.set_xlabel("区域长度四分位")
-
+                ax.set_ylabel(f"{dataset}\nMean standardized metric (z-score)")
     handles, labels = axes[0, 0].get_legend_handles_labels()
-    axes[0, 2].legend(handles, labels, loc="upper right", ncol=1)
-    fig.suptitle("不同数据集的区域长度分箱趋势", fontsize=9, y=0.985)
-    fig.subplots_adjust(left=0.10, right=0.98, top=0.91, bottom=0.13, hspace=0.30, wspace=0.16)
+    axes[0, 2].legend(handles, labels, loc="upper right", title="Region")
+    fig.suptitle("Token-length trends by dataset", fontsize=9, y=0.985)
+    fig.subplots_adjust(left=0.11, right=0.99, top=0.91, bottom=0.12, hspace=0.32, wspace=0.18)
     save_figure(fig, "fig8_region_length_bins_by_dataset")
 
 

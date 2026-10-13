@@ -44,7 +44,7 @@ MODEL_COLORS = {
     "Phi-3-mini-128k": "#D28E45",
     "Llama3-8B": "#8C6BB1",
 }
-LABEL_COLORS = {"攻击成功": "#C9675A", "攻击失败": "#5B8FB9"}
+LABEL_COLORS = {"攻击成功": "#F27873", "攻击失败": "#80C5A2"}
 LABEL_DISPLAY_NAMES = {"攻击成功": "Attack succeeded", "攻击失败": "Attack failed"}
 DATASET_LINESTYLES = {"InjecAgent": "-", "AgentDojo": "--"}
 
@@ -214,13 +214,64 @@ def plot_grouped_regions(data: list[tuple], stem: str, title: str, ylabel: str, 
         ax.set_xticks(x, ["AUTH", "FACT", "ATTACK"])
         ax.set_title(f"{dataset} · {model}")
         ax.set_ylabel(ylabel)
-        ax.grid(axis="y", color="#E3E3E3", linewidth=0.5)
+        ax.grid(False)
         add_panel_label(ax, "abcdef"[panel_index])
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=2, bbox_to_anchor=(0.5, 0.005))
     fig.suptitle(title, y=1.01, fontsize=9)
     fig.subplots_adjust(bottom=0.13, hspace=0.46, wspace=0.30)
     save_figure(fig, stem)
+
+
+def plot_combined_attention_shapley() -> None:
+    datasets = ["InjecAgent", "AgentDojo"]
+    outcome_labels = list(LABEL_DISPLAY_NAMES)
+    fig, axes = plt.subplots(4, 3, figsize=(10.8, 8.2))
+    x = np.arange(3)
+    width = 0.34
+    panel_label = 0
+
+    for group_index, (data, metric_name, include_zero) in enumerate(
+        [
+            (ATTENTION, "Mean Attention", False),
+            (SHAPLEY, "Mean Shapley Contribution", True),
+        ]
+    ):
+        for dataset_index, dataset in enumerate(datasets):
+            row_index = group_index * 2 + dataset_index
+            for column_index, model in enumerate(MODELS):
+                ax = axes[row_index, column_index]
+                rows = {
+                    record[2]: record[3:]
+                    for record in data
+                    if record[0] == dataset and record[1] == model
+                }
+                for offset, label in [(-width / 2, outcome_labels[0]), (width / 2, outcome_labels[1])]:
+                    ax.bar(
+                        x + offset,
+                        rows[label],
+                        width,
+                        color=LABEL_COLORS[label],
+                        label=LABEL_DISPLAY_NAMES[label],
+                        edgecolor="white",
+                        linewidth=0.4,
+                    )
+                if include_zero:
+                    ax.axhline(0, color="#666666", lw=0.6)
+                ax.set_xticks(x, ["AUTH", "FACT", "ATTACK"])
+                ax.set_title(model)
+                ax.set_ylabel(f"{dataset}\n{metric_name}" if column_index == 0 else "")
+                ax.grid(False)
+                add_panel_label(ax, "abcdefghijkl"[panel_label])
+                panel_label += 1
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2, bbox_to_anchor=(0.5, 0.015))
+    fig.text(0.025, 0.73, "Attention", rotation=90, va="center", ha="center", fontweight="bold")
+    fig.text(0.025, 0.31, "Shapley", rotation=90, va="center", ha="center", fontweight="bold")
+    fig.suptitle("Attention and Shapley Attribution by Attack Outcome", y=0.985, fontsize=10)
+    fig.subplots_adjust(left=0.13, right=0.99, top=0.92, bottom=0.09, hspace=0.62, wspace=0.30)
+    save_figure(fig, "fig9_attention_shapley_attribution")
 
 
 def plot_efficiency() -> None:
@@ -270,6 +321,7 @@ def main() -> None:
         "Mean Shapley Contribution",
         True,
     )
+    plot_combined_attention_shapley()
     plot_efficiency()
     print(f"Figures written to {OUT}")
 
