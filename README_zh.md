@@ -59,6 +59,17 @@ python scripts/llm_judge_attack_behavior.py --mode audit --dataset injecagent --
 
 AgentDojo 可先运行 `python scripts/agentdojo_attribution_experiment.py --audit-only`，语料与模型选项见脚本的 `--help`。测试命令为 `python -m pytest tests -q`。
 
+## remove_attack 反事实实验
+
+只对有效 Shapley 结果中 `M_attack > 0` 的候选进行文本删除、固定动作配对打分和下一步配对生成，不计算 Attention。六组候选的配置见 `configs/counterfactual_remove_attack.json`。
+
+```bash
+python scripts/run_counterfactual_experiment.py --stage prepare --batch-config configs/counterfactual_remove_attack.json
+python scripts/run_counterfactual_experiment.py --stage validate --batch-config configs/counterfactual_remove_attack.json
+```
+
+运行权重配置、AgentDojo schema 导出、独立行为评估、断点恢复和统计报告见 [实验指南](docs/guides/counterfactual_remove_attack.md)。
+
 ## 许可证与上游材料
 
 UCT-Trace 的原创贡献采用 [MIT 许可证](LICENSE)。仓库包含来自 [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker) 的基线代码；其上游 README 标注 **CC BY-NC 4.0**。这部分材料及第三方数据**不会因本仓库采用 MIT 而重新授权**。复用前请阅读 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

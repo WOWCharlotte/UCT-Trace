@@ -59,6 +59,17 @@ To verify execution, configure `JUDGE_API_KEY` and, if needed, `JUDGE_MODEL` and
 
 For AgentDojo, start with `python scripts/agentdojo_attribution_experiment.py --audit-only`; see the script's `--help` for corpus and model options. Run the test suite with `python -m pytest tests -q`.
 
+## remove_attack counterfactual experiment
+
+The counterfactual pipeline uses only valid Shapley-positive candidates (`M_attack > 0`). It compares textual attack removal with the original input through fixed-action scoring and next-action generation, without attention attribution. The six experiment jobs are configured in `configs/counterfactual_remove_attack.json`.
+
+```bash
+python scripts/run_counterfactual_experiment.py --stage prepare --batch-config configs/counterfactual_remove_attack.json
+python scripts/run_counterfactual_experiment.py --stage validate --batch-config configs/counterfactual_remove_attack.json
+```
+
+See the [experiment guide](docs/guides/counterfactual_remove_attack.md) for model paths, frozen AgentDojo schemas, independent behavior evaluation, resuming and clustered statistics.
+
 ## License and upstream material
 
 Original UCT-Trace contributions are licensed under the [MIT License](LICENSE). The included Attention Tracker baseline originates from [khhung-906/Attention-Tracker](https://github.com/khhung-906/Attention-Tracker), whose upstream README specifies **CC BY-NC 4.0**. That material and third-party datasets are **not relicensed by the MIT grant**. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before reuse.

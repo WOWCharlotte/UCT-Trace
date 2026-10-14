@@ -7,3 +7,5 @@ transformers
 datasets
 scikit-learn
 accelerate
+jsonschema
+matplotlib

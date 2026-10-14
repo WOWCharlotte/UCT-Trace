@@ -1,0 +1,46 @@
+{
+  "jobs": [
+    {
+      "dataset": "injecagent",
+      "shapley_input": ["result/injecagent_qwen3_dh_attack_20260809/results.action_shapley.jsonl", "result/injecagent_qwen3_dh_clean_20260809/results.action_shapley.jsonl"],
+      "raw_input": ["data/injecagent/qwen3-8b/test_cases_dh_base_attack.jsonl", "data/injecagent/qwen3-8b/test_cases_dh_base_clean.jsonl"],
+      "model_config": "configs/model_configs/qwen3_8b-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/injecagent_qwen3"
+    },
+    {
+      "dataset": "agentdojo",
+      "shapley_input": ["result/agentdojo_fact_longer_than_attack_qwen_8b_chunk16_fixed/results.shapley.jsonl"],
+      "raw_input": ["data/agentdojo/runs/qwen3-8b"],
+      "model_config": "configs/model_configs/qwen3_8b-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/agentdojo_qwen3"
+    },
+    {
+      "dataset": "injecagent",
+      "shapley_input": ["result/injecagent_phi3_dh_attack_20260809/results.action_shapley.jsonl", "result/injecagent_phi3_dh_clean_20260809/results.action_shapley.jsonl"],
+      "raw_input": ["data/injecagent/qwen3-8b/test_cases_dh_base_attack.jsonl", "data/injecagent/qwen3-8b/test_cases_dh_base_clean.jsonl"],
+      "model_config": "configs/model_configs/phi3-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/injecagent_phi3"
+    },
+    {
+      "dataset": "agentdojo",
+      "shapley_input": ["result/agentdojo_phi3_mini_128k_fixed/results.shapley.jsonl"],
+      "raw_input": ["data/agentdojo/runs/qwen3-8b"],
+      "model_config": "configs/model_configs/phi3-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/agentdojo_phi3"
+    },
+    {
+      "dataset": "injecagent",
+      "shapley_input": ["result/injecagent_llama3_dh_attack_20260810/results.action_shapley.jsonl", "result/injecagent_llama3_dh_clean_20260810/results.action_shapley.jsonl"],
+      "raw_input": ["data/injecagent/qwen3-8b/test_cases_dh_base_attack.jsonl", "data/injecagent/qwen3-8b/test_cases_dh_base_clean.jsonl"],
+      "model_config": "configs/model_configs/llama3_8b-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/injecagent_llama3"
+    },
+    {
+      "dataset": "agentdojo",
+      "shapley_input": ["result/agentdojo_llama3_8b/results.shapley.jsonl"],
+      "raw_input": ["data/agentdojo/runs/qwen3-8b"],
+      "model_config": "configs/model_configs/llama3_8b-attn_config.json",
+      "output_dir": "result/counterfactual_remove_attack_20261014/agentdojo_llama3"
+    }
+  ]
+}
